@@ -14,6 +14,8 @@ func main() {
 	switch os.Args[1] {
 	case "probe":
 		err = probe()
+	case "login":
+		err = login(os.Args[2:])
 	default:
 		usage()
 	}
@@ -27,6 +29,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `usage: arlo <command>
 
 commands:
-  probe   check that Cloudflare lets us reach Arlo (no credentials sent)`)
+  probe   check that Cloudflare lets us reach Arlo (no credentials sent)
+  login   open a session, with 2FA if needed, and save it (-h for flags)`)
 	os.Exit(2)
 }

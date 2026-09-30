@@ -2,10 +2,15 @@ module github.com/llehouerou/go-arlo
 
 go 1.27.1
 
-require github.com/imroc/req/v3 v3.61.0
+require (
+	github.com/emersion/go-imap/v2 v2.0.0-beta.8
+	github.com/emersion/go-message v0.18.2
+	github.com/imroc/req/v3 v3.61.0
+)
 
 require (
 	github.com/andybalholm/brotli v1.2.2 // indirect
+	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/icholy/digest v1.2.0 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect

@@ -21,7 +21,7 @@ library plus a small CLI; Oiko-agnostic.
 | HTTP | `github.com/imroc/req/v3` with `ImpersonateChrome()`; Arlo iOS user agent like pyaarlo |
 | MQTT | `github.com/eclipse/paho.golang` (v5, already in Oiko). Unproven against Arlo's broker: checked in the login spike, fall back to `eclipse/paho.mqtt.golang` (3.1.1, what pyaarlo speaks) if refused |
 | IMAP | `github.com/emersion/go-imap/v2` |
-| 2FA code | injected `func(ctx) (string, error)`; IMAP and stdin (CLI) implementations |
+| 2FA code | injected `func(ctx, since time.Time) (string, error)`; IMAP (newest `do_not_reply@arlo.com` mail after `since`) and stdin (CLI) implementations |
 | Session | JSON file at a caller-given path, 0600, atomic write: user device id, browser auth code, cookies, token, expiry |
 | API | `Client.Run(ctx, func(Event)) error` blocks and owns login, MQTT and reconnects; commands are methods (`SetMode`) on the session `Run` holds |
 | Events | concrete types: `Connection`, `DeviceState` (serial, connected, battery), `Motion`, `ModeChanged` |
