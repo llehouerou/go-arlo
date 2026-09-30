@@ -16,6 +16,8 @@ func main() {
 		err = probe()
 	case "login":
 		err = login(os.Args[2:])
+	case "mqtt-check":
+		err = mqttCheck(os.Args[2:])
 	default:
 		usage()
 	}
@@ -30,6 +32,7 @@ func usage() {
 
 commands:
   probe   check that Cloudflare lets us reach Arlo (no credentials sent)
-  login   open a session, with 2FA if needed, and save it (-h for flags)`)
+  login   open a session, with 2FA if needed, and save it (-h for flags)
+  mqtt-check  connect to Arlo's MQTT broker with a saved session (-h for flags)`)
 	os.Exit(2)
 }

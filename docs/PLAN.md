@@ -19,7 +19,7 @@ library plus a small CLI; Oiko-agnostic.
 | Module | `github.com/llehouerou/go-arlo`, flake devShell with `go_1_27` |
 | Account | `a dedicated Arlo account`; HA's aarlo integration is stopped while testing (one account, one session) |
 | HTTP | `github.com/imroc/req/v3` with `ImpersonateChrome()`; Arlo iOS user agent like pyaarlo |
-| MQTT | `github.com/eclipse/paho.golang` (v5, already in Oiko). Unproven against Arlo's broker: checked in the login spike, fall back to `eclipse/paho.mqtt.golang` (3.1.1, what pyaarlo speaks) if refused |
+| MQTT | `github.com/eclipse/paho.golang` (v5, already in Oiko), proven against Arlo's broker in the login spike |
 | IMAP | `github.com/emersion/go-imap/v2` |
 | 2FA code | injected `func(ctx, since time.Time) (string, error)`; IMAP (newest `do_not_reply@arlo.com` mail after `since`) and stdin (CLI) implementations |
 | Session | JSON file at a caller-given path, 0600, atomic write: user device id, browser auth code, cookies, token, expiry |
@@ -37,8 +37,8 @@ Authentication attempts are rate limited with a long cooldown. Hence:
 - `Run` re-logs in only on logout/401, with a backoff floor of minutes.
 - Every auth response is dumped, redacted, to a debug directory: debug from the
   dumps, not by retrying. The dumps become test fixtures.
-- the production host gets the session file made on the dev machine (same public IP; trust is the
-  device id + cookies) instead of a second pairing.
+- One trusted session per place: the spike paired on the production host directly, and the
+  session file there is the one to hand to Oiko, not a second pairing.
 
 ## What pyaarlo does (verified in the source)
 
@@ -105,6 +105,27 @@ Each layer works end to end before the next, and leaves one runnable check.
    payloads.
 4. **Modes**: locations, active mode, `SetMode` (GET revision, PUT),
    `ModeChanged`; `arlo mode [set armHome|standby]`. Check: `httptest`.
+
+## Login spike results (2026-09-30, run on the production host)
+
+- Cloudflare let the impersonated client through on every call, `/api/auth`
+  included. Credential-free probes pass with plain `net/http` too.
+- Full email 2FA worked first time: IMAP read the code from the mailbox in ~10 s,
+  then `startPairingFactor` set our own `browser_trust_<accountId>` cookie.
+- Rerun with the saved token: `validateAccessToken` + `session/v3` only.
+- Rerun without token: one `/api/auth`, `getFactorId` accepted the trust
+  cookie, no 2FA.
+- Tokens live **2 hours** (`expiresIn` is an epoch, issue time + 7200 s).
+  Token reuse only spares auths across quick restarts; `Run` will need a
+  trusted-browser re-auth about every 2 hours.
+- An untrusted browser gets HTTP 200 with `meta.code` 400, error 9261
+  "Invalid factor data" from `getFactorId`. HA's own trust cookie was refused
+  that way when replayed with HA's device id.
+- `mqttUrl` is `ssl://mqtt-cluster-v2-z1-1.arloxcld.com:443`; MQTT v5 over
+  TLS with paho.golang: CONNACK 0, SUBACK granted. paho.golang stays.
+- `supportsMultiLocation` is true: modes are V3, per location.
+- HA's aarlo config entry is disabled (`disabled_by: user`) on the production host while this
+  client owns the account; backup next to `core.config_entries`.
 
 Then, outside this repo: the `home.Port` adapter in Oiko, `*File` options in
 Oiko's NixOS module, sops secrets on the production host.

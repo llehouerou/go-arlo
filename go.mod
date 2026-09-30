@@ -3,6 +3,7 @@ module github.com/llehouerou/go-arlo
 go 1.27.1
 
 require (
+	github.com/eclipse/paho.golang v0.23.0
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-message v0.18.2
 	github.com/imroc/req/v3 v3.61.0

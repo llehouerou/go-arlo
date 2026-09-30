@@ -72,7 +72,8 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		meta(map[string]any{"token": token(), "userId": "U1", "authCompleted": false})
 	case "/api/getFactorId":
 		if !authorized || !trusted {
-			refuse(http.StatusBadRequest)
+			// What Arlo really answers for an untrusted browser.
+			_ = json.NewEncoder(w).Encode(map[string]any{"meta": map[string]any{"code": 400, "error": 9261, "message": "Invalid factor data"}})
 			return
 		}
 		meta(map[string]any{"factorId": "F-browser"})
