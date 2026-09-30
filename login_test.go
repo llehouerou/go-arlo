@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,6 +25,9 @@ type fakeArlo struct {
 	issued   string
 	refuse   bool // /api/auth answers 401
 	deviceID string
+	// trust is the only browser_trust value accepted; Arlo rotates it on
+	// every trusted startAuth.
+	trust int
 }
 
 func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +49,7 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	authorized := r.Header.Get("Authorization") == base64.StdEncoding.EncodeToString([]byte(f.issued)) && f.issued != ""
 	trusted := false
-	if ck, err := r.Cookie("trust"); err == nil && ck.Value == "yes" {
+	if ck, err := r.Cookie("trust"); err == nil && f.trust > 0 && ck.Value == fmt.Sprint(f.trust) {
 		trusted = true
 	}
 	meta := func(data any) {
@@ -86,6 +90,8 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/api/startAuth":
 		switch body["factorId"] {
 		case "F-browser":
+			f.trust++
+			http.SetCookie(w, &http.Cookie{Name: "trust", Value: fmt.Sprint(f.trust), Path: "/"})
 			meta(map[string]any{"accessToken": map[string]any{"token": token(), "userId": "U1", "expiresIn": expires}})
 		case "F-mail":
 			meta(map[string]any{"factorAuthCode": "FAC"})
@@ -107,7 +113,8 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if body["factorAuthCode"] != "BAC" {
 			f.t.Errorf("pairing body %v", body)
 		}
-		http.SetCookie(w, &http.Cookie{Name: "trust", Value: "yes", Path: "/"})
+		f.trust++
+		http.SetCookie(w, &http.Cookie{Name: "trust", Value: fmt.Sprint(f.trust), Path: "/"})
 		meta(map[string]any{})
 	case "/hmsweb/users/session/v3":
 		if r.Header.Get("Authorization") != f.issued || r.URL.Query().Get("eventId") == "" {
@@ -179,14 +186,17 @@ func TestLogin(t *testing.T) {
 	}
 	expect("token reuse", "/api/validateAccessToken", "/hmsweb/users/session/v3")
 
-	// Token expired: one auth, trusted browser, no code.
-	fake.issued = "expired"
-	if err := login(); err != nil {
-		t.Fatal(err)
+	// Token expired, twice: one auth each, trusted browser, no code. The
+	// second only passes if the rotated trust cookie was saved.
+	for range 2 {
+		fake.issued = "expired"
+		if err := login(); err != nil {
+			t.Fatal(err)
+		}
+		expect("trusted browser",
+			"/api/validateAccessToken", "/api/auth", "/api/getFactorId", "/api/startAuth",
+			"/api/validateAccessToken", "/hmsweb/users/session/v3")
 	}
-	expect("trusted browser",
-		"/api/validateAccessToken", "/api/auth", "/api/getFactorId", "/api/startAuth",
-		"/api/validateAccessToken", "/hmsweb/users/session/v3")
 	if codes != 1 {
 		t.Errorf("code asked %d times", codes)
 	}

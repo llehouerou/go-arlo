@@ -118,12 +118,14 @@ func (c *Client) authenticate(ctx context.Context) error {
 		}
 	}
 
-	if err := c.validate(ctx); err != nil {
-		return err
-	}
-	// Save before pairing: the token alone spares the next auth.
+	// Save at once: startAuth on a trusted browser rotates the
+	// browser_trust cookie and voids the old one, so losing the new one
+	// costs an email 2FA. The token alone also spares the next auth.
 	if err := c.save(); err != nil {
 		return fmt.Errorf("write session: %w", err)
+	}
+	if err := c.validate(ctx); err != nil {
+		return err
 	}
 	if !paired || c.sess.BrowserAuthCode == "" {
 		return nil

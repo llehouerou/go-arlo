@@ -170,5 +170,17 @@ account; the `logout` pyaarlo warns about must come from something else.
 - `standby` still holds motion rules for camera A: that is the camera
   "armed all the time".
 - armHome then standby round trip done twice, location left in standby.
+
+## Token renewal and trust rotation (2026-09-30, the production host)
+
+- The background `watch` renewed its token at 17:36:38 as planned (expiry
+  minus 10 min) with no `Connection` flap, and got a fresh 2 h token.
+- It needed an email 2FA though (handled by IMAP in 7 s, then re-paired):
+  `getFactorId` answered 9261. Cause: a trusted `startAuth` **rotates the
+  `browser_trust` cookie** and voids the previous one, and the concurrency
+  test had logged in from a copy of the session file.
+- Rule: one owner per session file, never a copy, never the same file on
+  two hosts. The session is now saved right after the auth succeeds, before
+  `validateAccessToken`, so a failure there does not lose the new cookie.
 Then, outside this repo: the `home.Port` adapter in Oiko, `*File` options in
 Oiko's NixOS module, sops secrets on the production host.
