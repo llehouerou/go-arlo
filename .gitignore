@@ -1,0 +1,5 @@
+.direnv/
+/arlo
+# Local session and debug dumps: they hold tokens and cookies.
+*.session.json
+/debug/
