@@ -15,7 +15,7 @@ func TestPacketEvents(t *testing.T) {
 		want []string
 	}{
 		{"subscription reply", `{"action":"is","from":"B","properties":{"devices":["B"]},"resource":"subscriptions/U_web"}`, nil},
-		{"mode change", `{"B":{"activeModes":["mode1"]},"resource":"activeAutomations"}`, nil},
+		{"v2 base mode change", `{"B":{"activeModes":["mode1"]},"resource":"activeAutomations"}`, nil},
 		{"motion", `{"action":"is","from":"B","properties":{"motionDetected":"True"},"resource":"cameras/C1"}`,
 			[]string{"motion C1 true"}},
 		{"motion as bool, stop", `{"action":"is","properties":{"motionDetected":false},"resource":"cameras/C1"}`,
@@ -27,6 +27,10 @@ func TestPacketEvents(t *testing.T) {
 			"C1":{"properties":{"connectionState":"thermalShutdownCold"}},
 			"B":{"properties":{"connectivity":[{"connected":"True"}],"state":"idle"},"states":{}}}}`,
 			[]string{"state C1 connected=false battery=-", "state C2 connected=true battery=45"}},
+		// Real VMB4000 packet after a SetMode, trimmed.
+		{"mode change", `{"action":"is","from":"B","resource":"devices/B/states","states":{"activeMode":"armHome","schemaVersion":1,"source":"client-U"}}`,
+			[]string{"device mode B armHome"}},
+		{"device states without mode", `{"action":"is","resource":"devices/C1/states","states":{"schemaVersion":1}}`, nil},
 		{"properties as a list", `{"resource":"cameras/C1","properties":[{"serialNumber":"C1"}]}`, nil},
 	}
 	for _, tc := range cases {
@@ -48,6 +52,8 @@ func describe(e Event) string {
 	switch e := e.(type) {
 	case Motion:
 		return fmt.Sprintf("motion %s %v", e.ID, e.Active)
+	case deviceMode:
+		return fmt.Sprintf("device mode %s %s", e.ID, e.Mode)
 	case DeviceState:
 		conn, batt := "-", "-"
 		if e.Connected != nil {

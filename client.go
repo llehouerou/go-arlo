@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"uuid"
 
@@ -58,9 +59,16 @@ type Client struct {
 	apiHost  string
 	dumps    int
 
+	// Once Run has started, only its goroutine touches these; SetMode goes
+	// through cmds.
 	sess          session
 	mqttURL       string
 	multiLocation bool
+	bases         []device
+	loc           location
+
+	cmds      chan command
+	connected atomic.Bool
 }
 
 // New returns a client. It does not touch the network: see Login.
@@ -81,6 +89,7 @@ func New(cfg Config) *Client {
 			SetTimeout(60 * time.Second),
 		authHost: defaultAuthHost,
 		apiHost:  defaultAPIHost,
+		cmds:     make(chan command),
 	}
 }
 
@@ -222,6 +231,7 @@ var redacted = map[string]bool{
 	"factorauthcode": true, "userid": true, "email": true, "otp": true,
 	"password": true, "factornickname": true, "displayname": true,
 	"factordata": true, "firstname": true, "lastname": true,
+	"streamurl": true, // RTSP URL with an ingress token
 }
 
 func (c *Client) dumpResponse(path string, resp *req.Response) {

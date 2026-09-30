@@ -33,6 +33,14 @@ type Motion struct {
 	Active bool
 }
 
+// deviceMode is a device's report of the mode it applies. Run turns a base
+// station's into ModeChanged for its location; it never reaches handlers.
+type deviceMode struct {
+	ID   string
+	Mode Mode
+}
+
+func (deviceMode) isEvent()  {}
 func (Devices) isEvent()     {}
 func (DeviceState) isEvent() {}
 func (Motion) isEvent()      {}
@@ -66,14 +74,17 @@ func (p properties) state(id string) (DeviceState, bool) {
 type packet struct {
 	Action     string          `json:"action"`
 	Resource   string          `json:"resource"`
+	States     json.RawMessage `json:"states"`
 	Properties json.RawMessage `json:"properties"`
 	Devices    json.RawMessage `json:"devices"`
 }
 
 // events turns a packet into events. See pyaarlo's docs/packets.md: a base
 // station answers "get devices" with its children's full state (resource
-// "devices") and cameras push changes as they happen (resource
-// "cameras/<id>"). Packets of an unexpected shape yield nothing.
+// "devices"), cameras push changes as they happen (resource
+// "cameras/<id>") and a mode change shows as every device's
+// "devices/<id>/states" with its activeMode. Packets of an unexpected shape
+// yield nothing.
 func (m packet) events() []Event {
 	var out []Event
 	switch {
@@ -101,6 +112,15 @@ func (m packet) events() []Event {
 		if p.MotionDetected != nil {
 			out = append(out, Motion{ID: id, Active: bool(*p.MotionDetected)})
 		}
+	case strings.HasPrefix(m.Resource, "devices/") && strings.HasSuffix(m.Resource, "/states"):
+		var s struct {
+			ActiveMode Mode `json:"activeMode"`
+		}
+		if json.Unmarshal(m.States, &s) != nil || s.ActiveMode == "" {
+			return nil
+		}
+		id := strings.TrimSuffix(strings.TrimPrefix(m.Resource, "devices/"), "/states")
+		out = append(out, deviceMode{ID: id, Mode: s.ActiveMode})
 	}
 	return out
 }

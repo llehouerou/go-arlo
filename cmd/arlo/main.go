@@ -24,6 +24,8 @@ func main() {
 		err = login(ctx, os.Args[2:])
 	case "watch":
 		err = watch(ctx, os.Args[2:])
+	case "mode":
+		err = mode(ctx, os.Args[2:])
 	default:
 		usage()
 	}
@@ -40,7 +42,8 @@ commands:
   probe   check that Cloudflare lets us reach Arlo (no credentials sent)
   login   open a session, with 2FA if needed, and save it
   watch   follow Arlo's event stream and print events
+  mode    print the location's mode; mode [flags] standby|armHome|armAway sets it
 
-login and watch take the same flags; see arlo login -h.`)
+login, watch and mode take the same flags; see arlo login -h.`)
 	os.Exit(2)
 }

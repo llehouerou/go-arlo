@@ -140,5 +140,35 @@ Each layer works end to end before the next, and leaves one runnable check.
   Another client (`<ownerId>_web`, not this account) also subscribes every
   ~30 s: probably the Arlo app of an account the base is shared with.
 - First readings: base connected, camera A 31 %, camera B 81 %.
+- Motion (armed camera A): `cameras/<id>` packets with `motionDetected`
+  true then false ~6 s later, each sent twice by the base (distinct
+  transIds, likely once per subscribed client). Harmless for a state.
+  Motion packets also carry a `streamURL` with an ingress token: redacted.
+
+## Concurrent sessions (2026-09-30, the production host)
+
+With a `watch` running, none of these disturbed it: a second process
+reusing the token (REST), a second MQTT connection on the same token (both
+received the motion events), a fresh `/api/auth` elsewhere (the old token
+kept working, no `logout`). Arlo tolerates concurrent sessions of this
+account; the `logout` pyaarlo warns about must come from something else.
+
+## Modes results (2026-09-30, the production host)
+
+- The account go-arlo uses is a **granted access** account. Its locations: an empty
+  `Home` of its own (no gateway) and the owner's shared `Home`, whose
+  `gatewayDeviceIds` are `<ownerId>_<deviceId>`. The client picks the
+  location holding a base, like pyaarlo. The other subscriber `<ownerId>` is
+  the owner.
+- A granted-access account can read and set the mode. `activeMode` answers
+  `{properties: {mode}, revision, source}`; `source` was `schedule`: the
+  owner has an Arlo schedule.
+- No `automation/activeMode` packet arrives on our topics. A mode change
+  shows as `devices/<id>/states` with `states.activeMode` for the base and
+  each camera; the base's is turned into `ModeChanged`. The mode is also
+  read at connection and every ten minutes.
+- `standby` still holds motion rules for camera A: that is the camera
+  "armed all the time".
+- armHome then standby round trip done twice, location left in standby.
 Then, outside this repo: the `home.Port` adapter in Oiko, `*File` options in
 Oiko's NixOS module, sops secrets on the production host.

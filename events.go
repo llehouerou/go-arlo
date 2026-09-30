@@ -117,6 +117,7 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 	// Each device of a base lists the same topics.
 	slices.Sort(topics)
 	topics = slices.Compact(topics)
+	c.bases, c.loc = bases, location{} // the location is resolved on first use
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -142,6 +143,8 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 	c.log.Info("arlo: event stream up", "topics", len(topics), "bases", len(bases), "renew_in", renewIn.Round(time.Second))
 	emit(list)
 	emit(Connection{Up: true})
+	c.connected.Store(true)
+	defer c.connected.Store(false)
 
 	// A base is connected while it answers pings; pyaarlo pings every
 	// minute. Only changes are reported.
@@ -168,13 +171,17 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 		return nil
 	}
 	// Bases answer on the event stream with their devices' state; pyaarlo
-	// asks every ten minutes.
+	// asks every ten minutes. The mode is read at the same pace, in case a
+	// change slipped past the event stream.
 	refreshAll := func() {
 		for _, b := range bases {
 			err := c.notify(ctx, b, map[string]any{"action": "get", "resource": "devices", "publishResponse": false})
 			if err != nil && ctx.Err() == nil {
 				c.log.Warn("arlo: state refresh failed", "base", b.Name, "err", err)
 			}
+		}
+		if err := c.readMode(ctx, emit); err != nil && ctx.Err() == nil {
+			c.log.Warn("arlo: mode refresh failed", "err", err)
 		}
 	}
 
@@ -202,6 +209,8 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 			}
 		case <-refresh.C:
 			refreshAll()
+		case cmd := <-c.cmds:
+			cmd.done <- cmd.fn(ctx, emit)
 		case m := <-msgs:
 			c.dump("mqtt"+m.Topic, map[string]any{"topic": m.Topic}, m.Payload)
 			var msg packet
@@ -215,6 +224,12 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 			}
 			c.log.Debug("arlo: MQTT message", "topic", m.Topic, "resource", msg.Resource, "action", msg.Action)
 			for _, e := range msg.events() {
+				if dm, ok := e.(deviceMode); ok {
+					if c.loc.ID == "" || !slices.ContainsFunc(bases, func(b device) bool { return b.ID == dm.ID }) {
+						continue
+					}
+					e = ModeChanged{LocationID: c.loc.ID, LocationName: c.loc.Name, Mode: dm.Mode}
+				}
 				emit(e)
 			}
 		}
