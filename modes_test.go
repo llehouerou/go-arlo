@@ -2,6 +2,7 @@ package arlo
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -63,7 +64,7 @@ func TestLocation(t *testing.T) {
 }
 
 func TestSetModeNeedsRun(t *testing.T) {
-	if err := New(Config{}).SetMode(t.Context(), ArmHome); err != errNotConnected {
+	if err := New(Config{}).SetMode(t.Context(), ArmHome); !errors.Is(err, ErrNotConnected) {
 		t.Errorf("err %v", err)
 	}
 }

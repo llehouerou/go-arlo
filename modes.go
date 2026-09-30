@@ -106,7 +106,8 @@ func (c *Client) setMode(ctx context.Context, loc location, mode Mode) error {
 	return err
 }
 
-var errNotConnected = errors.New("arlo: not connected")
+// ErrNotConnected is SetMode's error while Run is not connected to Arlo.
+var ErrNotConnected = errors.New("arlo: not connected")
 
 // command is work Run does on behalf of another goroutine, so that it uses
 // the session only Run's goroutine touches.
@@ -119,7 +120,7 @@ type command struct {
 // not connected.
 func (c *Client) do(ctx context.Context, fn func(context.Context, func(Event)) error) error {
 	if !c.connected.Load() {
-		return errNotConnected
+		return ErrNotConnected
 	}
 	cmd := command{fn: fn, done: make(chan error, 1)}
 	select {

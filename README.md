@@ -33,7 +33,7 @@ go func() {
 	// err: ctx ended, or a failure retrying cannot fix
 }()
 
-err := c.SetMode(ctx, arlo.ArmHome) // needs Run to be connected
+err := c.SetMode(ctx, arlo.ArmHome) // arlo.ErrNotConnected while Run is not connected
 ```
 
 `Run` blocks. It logs in, connects to Arlo's MQTT broker, pings the base
