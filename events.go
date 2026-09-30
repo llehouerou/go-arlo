@@ -97,11 +97,22 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 		"u/" + c.sess.UserID + "/in/userSession/disconnect",
 	}
 	var bases []device
+	var list Devices
 	for _, d := range devs {
 		topics = append(topics, d.Topics...)
+		// The device list also holds pseudo devices, like a base's siren
+		// under the base's own id.
+		if d.Type != "basestation" && d.Type != "camera" {
+			continue
+		}
 		if d.Type == "basestation" {
 			bases = append(bases, d)
 		}
+		dev := Device{ID: d.ID, Name: d.Name, Model: d.Model, Type: d.Type}
+		if d.ParentID != d.ID {
+			dev.BaseID = d.ParentID
+		}
+		list = append(list, dev)
 	}
 	// Each device of a base lists the same topics.
 	slices.Sort(topics)
@@ -129,15 +140,54 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 		}
 	}
 	c.log.Info("arlo: event stream up", "topics", len(topics), "bases", len(bases), "renew_in", renewIn.Round(time.Second))
+	emit(list)
 	emit(Connection{Up: true})
+
+	// A base is connected while it answers pings; pyaarlo pings every
+	// minute. Only changes are reported.
+	baseUp := map[string]bool{}
+	pingAll := func() error {
+		for _, b := range bases {
+			err := c.ping(ctx, b)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			var refused *apiError
+			if errors.As(err, &refused) && refused.status == 401 {
+				return fmt.Errorf("arlo: ping %s: %w", b.Name, err)
+			}
+			if err != nil {
+				c.log.Warn("arlo: ping failed", "base", b.Name, "err", err)
+			}
+			up := err == nil
+			if was, seen := baseUp[b.ID]; !seen || was != up {
+				baseUp[b.ID] = up
+				emit(DeviceState{ID: b.ID, Connected: &up})
+			}
+		}
+		return nil
+	}
+	// Bases answer on the event stream with their devices' state; pyaarlo
+	// asks every ten minutes.
+	refreshAll := func() {
+		for _, b := range bases {
+			err := c.notify(ctx, b, map[string]any{"action": "get", "resource": "devices", "publishResponse": false})
+			if err != nil && ctx.Err() == nil {
+				c.log.Warn("arlo: state refresh failed", "base", b.Name, "err", err)
+			}
+		}
+	}
 
 	renew := time.NewTimer(renewIn)
 	defer renew.Stop()
 	ping := time.NewTicker(time.Minute)
 	defer ping.Stop()
-	if err := c.pingAll(ctx, bases); err != nil {
+	refresh := time.NewTicker(10 * time.Minute)
+	defer refresh.Stop()
+	if err := pingAll(); err != nil {
 		return err
 	}
+	refreshAll()
 	for {
 		select {
 		case <-ctx.Done():
@@ -147,48 +197,28 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 		case <-renew.C:
 			return errRenew
 		case <-ping.C:
-			if err := c.pingAll(ctx, bases); err != nil {
+			if err := pingAll(); err != nil {
 				return err
 			}
+		case <-refresh.C:
+			refreshAll()
 		case m := <-msgs:
-			if err := c.onMessage(m); err != nil {
-				return err
+			c.dump("mqtt"+m.Topic, map[string]any{"topic": m.Topic}, m.Payload)
+			var msg packet
+			err := json.Unmarshal(m.Payload, &msg)
+			if err != nil {
+				c.log.Warn("arlo: unreadable MQTT message", "topic", m.Topic, "err", err)
+				continue
+			}
+			if msg.Action == "logout" {
+				return errLoggedOut
+			}
+			c.log.Debug("arlo: MQTT message", "topic", m.Topic, "resource", msg.Resource, "action", msg.Action)
+			for _, e := range msg.events() {
+				emit(e)
 			}
 		}
 	}
-}
-
-// pingAll pings every base. A refused token ends the session; other
-// failures are only logged.
-func (c *Client) pingAll(ctx context.Context, bases []device) error {
-	for _, b := range bases {
-		err := c.ping(ctx, b)
-		var refused *apiError
-		if errors.As(err, &refused) && refused.status == 401 {
-			return fmt.Errorf("arlo: ping %s: %w", b.Name, err)
-		}
-		if err != nil {
-			c.log.Warn("arlo: ping failed", "base", b.Name, "err", err)
-		}
-	}
-	return nil
-}
-
-func (c *Client) onMessage(m *paho.Publish) error {
-	c.dump("mqtt"+m.Topic, map[string]any{"topic": m.Topic}, m.Payload)
-	var msg struct {
-		Action   string `json:"action"`
-		Resource string `json:"resource"`
-	}
-	if err := json.Unmarshal(m.Payload, &msg); err != nil {
-		c.log.Warn("arlo: unreadable MQTT message", "topic", m.Topic, "err", err)
-		return nil
-	}
-	if msg.Action == "logout" {
-		return errLoggedOut
-	}
-	c.log.Debug("arlo: MQTT message", "topic", m.Topic, "resource", msg.Resource, "action", msg.Action)
-	return nil
 }
 
 // connectMQTT connects to the broker the session named, as pyaarlo does.
