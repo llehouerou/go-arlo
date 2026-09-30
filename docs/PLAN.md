@@ -127,5 +127,18 @@ Each layer works end to end before the next, and leaves one runnable check.
 - HA's aarlo config entry is disabled (`disabled_by: user`) on the production host while this
   client owns the account; backup next to `core.config_entries`.
 
+## Events and devices results (2026-09-30, the production host)
+
+- `/v2/users/devices` lists the base, a pseudo `siren` device under the
+  base's id, and the two cameras, with no `properties`: state only comes
+  from the base's answer to `get devices`, on
+  `d/<xCloudId>/out/devices/is`. `batteryLevel` is an int,
+  `motionDetected` a JSON bool, `connectionState` `available`.
+- The 4 devices share the same 16 allowed topics (19 with the user session
+  ones after dedup).
+- Each ping is answered on `d/<xCloudId>/out/subscriptions/<us>_web/is`.
+  Another client (`<ownerId>_web`, not this account) also subscribes every
+  ~30 s: probably the Arlo app of an account the base is shared with.
+- First readings: base connected, camera A 31 %, camera B 81 %.
 Then, outside this repo: the `home.Port` adapter in Oiko, `*File` options in
 Oiko's NixOS module, sops secrets on the production host.
