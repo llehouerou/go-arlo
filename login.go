@@ -14,10 +14,22 @@ import (
 	"uuid"
 )
 
-// Login opens a session. It reuses the saved token while Arlo accepts it;
-// otherwise it authenticates once, with two-factor by email until Arlo
-// trusts this client as a browser. Arlo rate limits auth attempts with a
-// long cooldown, so Login never retries: callers must not loop on it.
+// renewBefore is how long before its expiry a token is replaced. Tokens last
+// two hours.
+const renewBefore = 10 * time.Minute
+
+var (
+	// errAuthRefused marks Arlo refusing /api/auth: bad credentials or the
+	// rate limit. Retrying soon only prolongs the cooldown.
+	errAuthRefused = errors.New("auth refused")
+	// errNeedsCode marks a 2FA that cannot be done without Config.Code.
+	errNeedsCode = errors.New("2FA needed but no code source configured")
+)
+
+// Login opens a session. It reuses the saved token while Arlo accepts it and
+// it is not about to expire; otherwise it authenticates once, with
+// two-factor by email until Arlo trusts this client as a browser. Arlo rate
+// limits auth attempts with a long cooldown, so Login never retries.
 func (c *Client) Login(ctx context.Context) error {
 	if err := c.load(); err != nil {
 		return fmt.Errorf("arlo: read session: %w", err)
@@ -26,12 +38,12 @@ func (c *Client) Login(ctx context.Context) error {
 		c.sess.DeviceID = uuid.NewV4().String()
 	}
 
-	if c.sess.Token != "" {
+	if c.sess.Token != "" && time.Until(c.expires()) > renewBefore {
 		err := c.validate(ctx)
 		var refused *apiError
 		switch {
 		case err == nil:
-			c.log.Info("arlo: saved token still valid")
+			c.log.Info("arlo: saved token still valid", "expires", c.expires())
 			return c.startSession(ctx)
 		case !errors.As(err, &refused):
 			return fmt.Errorf("arlo: validate saved token: %w", err)
@@ -45,11 +57,14 @@ func (c *Client) Login(ctx context.Context) error {
 	return c.startSession(ctx)
 }
 
+func (c *Client) expires() time.Time { return time.Unix(c.sess.Expires, 0) }
+
 // authData is the token part of /api/auth, startAuth and finishAuth answers.
 // The last two nest it under accessToken.
 type authData struct {
 	Token           string    `json:"token"`
 	UserID          string    `json:"userId"`
+	ExpiresIn       int64     `json:"expiresIn"` // a Unix time, despite the name
 	AuthCompleted   bool      `json:"authCompleted"`
 	BrowserAuthCode string    `json:"browserAuthCode"`
 	AccessToken     *authData `json:"accessToken"`
@@ -67,7 +82,7 @@ func (c *Client) setAuth(data json.RawMessage) (authData, error) {
 	if t.Token == "" || t.UserID == "" {
 		return a, errors.New("no token in auth answer")
 	}
-	c.sess.Token, c.sess.UserID = t.Token, t.UserID
+	c.sess.Token, c.sess.UserID, c.sess.Expires = t.Token, t.UserID, t.ExpiresIn
 	if bac := cmp.Or(t.BrowserAuthCode, a.BrowserAuthCode); bac != "" {
 		c.sess.BrowserAuthCode = bac
 	}
@@ -84,6 +99,10 @@ func (c *Client) authenticate(ctx context.Context) error {
 		"language":  "en",
 		"EnvSource": "prod",
 	})
+	var refused *apiError
+	if errors.As(err, &refused) {
+		return fmt.Errorf("%w: %w", errAuthRefused, err)
+	}
 	if err != nil {
 		return err
 	}
@@ -159,7 +178,7 @@ func (c *Client) secondFactor(ctx context.Context) (paired bool, err error) {
 	}
 
 	if c.cfg.Code == nil {
-		return false, errors.New("2FA needed but no code source configured")
+		return false, errNeedsCode
 	}
 	data, err = c.authCall(ctx, http.MethodGet,
 		"/api/getFactors?data="+strconv.FormatInt(time.Now().Unix(), 10), true, nil)
@@ -228,7 +247,7 @@ func (c *Client) validate(ctx context.Context) error {
 
 // startSession fetches the session details the event stream needs.
 func (c *Client) startSession(ctx context.Context) error {
-	data, err := c.apiGet(ctx, "/hmsweb/users/session/v3")
+	data, err := c.apiCall(ctx, http.MethodGet, "/hmsweb/users/session/v3", nil, nil)
 	if err != nil {
 		return fmt.Errorf("arlo: start session: %w", err)
 	}

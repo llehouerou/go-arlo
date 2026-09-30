@@ -59,6 +59,7 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.issued = "tok-" + time.Now().Format("150405.000000000")
 		return f.issued
 	}
+	expires := time.Now().Add(2 * time.Hour).Unix()
 
 	switch r.URL.Path {
 	case "/api/auth":
@@ -69,7 +70,7 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if pw, _ := base64.StdEncoding.DecodeString(body["password"].(string)); string(pw) != "secret" {
 			f.t.Errorf("password %q", pw)
 		}
-		meta(map[string]any{"token": token(), "userId": "U1", "authCompleted": false})
+		meta(map[string]any{"token": token(), "userId": "U1", "expiresIn": expires, "authCompleted": false})
 	case "/api/getFactorId":
 		if !authorized || !trusted {
 			// What Arlo really answers for an untrusted browser.
@@ -85,7 +86,7 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/api/startAuth":
 		switch body["factorId"] {
 		case "F-browser":
-			meta(map[string]any{"accessToken": map[string]any{"token": token(), "userId": "U1"}})
+			meta(map[string]any{"accessToken": map[string]any{"token": token(), "userId": "U1", "expiresIn": expires}})
 		case "F-mail":
 			meta(map[string]any{"factorAuthCode": "FAC"})
 		default:
@@ -95,7 +96,7 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if body["otp"] != "123456" || body["factorAuthCode"] != "FAC" || body["isBrowserTrusted"] != true {
 			f.t.Errorf("finishAuth body %v", body)
 		}
-		meta(map[string]any{"accessToken": map[string]any{"token": token(), "userId": "U1", "browserAuthCode": "BAC"}})
+		meta(map[string]any{"accessToken": map[string]any{"token": token(), "userId": "U1", "expiresIn": expires, "browserAuthCode": "BAC"}})
 	case "/api/validateAccessToken":
 		if !authorized {
 			refuse(http.StatusUnauthorized)

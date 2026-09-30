@@ -176,12 +176,13 @@ func (c *Client) authCall(ctx context.Context, method, path string, authorized b
 	if err != nil {
 		return nil, err
 	}
-	c.dump(path, resp)
+	c.dumpResponse(path, resp)
 	return unwrap(path, resp.StatusCode, resp.Bytes())
 }
 
-// apiGet sends a GET to the API host with the session token.
-func (c *Client) apiGet(ctx context.Context, path string) (json.RawMessage, error) {
+// apiCall sends a request to the API host with the session token. extra
+// headers are added to the usual ones; body is JSON-encoded when not nil.
+func (c *Client) apiCall(ctx context.Context, method, path string, extra map[string]string, body any) (json.RawMessage, error) {
 	tid := "FE!" + uuid.NewV4().String()
 	u, err := url.Parse(c.apiHost + path)
 	if err != nil {
@@ -191,7 +192,7 @@ func (c *Client) apiGet(ctx context.Context, path string) (json.RawMessage, erro
 	q.Set("eventId", tid)
 	q.Set("time", strconv.FormatInt(time.Now().UnixMilli(), 10))
 	u.RawQuery = q.Encode()
-	resp, err := c.http.R().SetContext(ctx).SetHeaders(map[string]string{
+	r := c.http.R().SetContext(ctx).SetHeaders(map[string]string{
 		"Accept":           "application/json",
 		"Auth-Version":     "2",
 		"Authorization":    c.sess.Token,
@@ -203,54 +204,57 @@ func (c *Client) apiGet(ctx context.Context, path string) (json.RawMessage, erro
 		"Referer":          origin + "/",
 		"SchemaVersion":    "1",
 		"x-transaction-id": tid,
-	}).Send(http.MethodGet, u.String())
+	}).SetHeaders(extra)
+	if body != nil {
+		r.SetBodyJsonMarshal(body)
+	}
+	resp, err := r.Send(method, u.String())
 	if err != nil {
 		return nil, err
 	}
-	c.dump(path, resp)
+	c.dumpResponse(path, resp)
 	return unwrap(path, resp.StatusCode, resp.Bytes())
 }
 
 // Keys whose values are secrets or personal data, lowercased.
 var redacted = map[string]bool{
-	"token": true, "accesstoken": true, "browserauthcode": true,
+	"token": true, "browserauthcode": true,
 	"factorauthcode": true, "userid": true, "email": true, "otp": true,
 	"password": true, "factornickname": true, "displayname": true,
 	"factordata": true, "firstname": true, "lastname": true,
 }
 
-// dump writes a response to DumpDir with secrets redacted. Failures are
-// logged, never fatal.
-func (c *Client) dump(path string, resp *req.Response) {
-	if c.cfg.DumpDir == "" {
-		return
-	}
+func (c *Client) dumpResponse(path string, resp *req.Response) {
 	var cookies []string
 	for _, ck := range resp.Cookies() {
 		cookies = append(cookies, ck.Name)
 	}
-	var body any
-	if err := json.Unmarshal(resp.Bytes(), &body); err == nil {
-		body = redact(body)
-	} else {
-		body = snippet(resp.Bytes())
+	c.dump(path, map[string]any{"path": path, "status": resp.StatusCode, "setCookies": cookies}, resp.Bytes())
+}
+
+// dump writes body, redacted, with its context fields to DumpDir. Failures
+// are logged, never fatal.
+func (c *Client) dump(name string, fields map[string]any, body []byte) {
+	if c.cfg.DumpDir == "" {
+		return
 	}
-	out, _ := json.MarshalIndent(map[string]any{
-		"path":       path,
-		"status":     resp.StatusCode,
-		"setCookies": cookies,
-		"body":       body,
-	}, "", "  ")
+	var v any
+	if err := json.Unmarshal(body, &v); err == nil {
+		fields["body"] = redact(v)
+	} else {
+		fields["body"] = snippet(body)
+	}
+	out, _ := json.MarshalIndent(fields, "", "  ")
 	c.dumps++
-	name := fmt.Sprintf("%s-%02d%s.json", time.Now().Format("20060102-150405"), c.dumps,
-		strings.NewReplacer("/", "_", "?", "_").Replace(path))
+	file := fmt.Sprintf("%s-%03d%s.json", time.Now().Format("20060102-150405"), c.dumps,
+		strings.NewReplacer("/", "_", "?", "_", "+", "_", "#", "_").Replace(name))
 	if err := os.MkdirAll(c.cfg.DumpDir, 0o700); err == nil {
-		err = os.WriteFile(filepath.Join(c.cfg.DumpDir, name), out, 0o600)
+		err = os.WriteFile(filepath.Join(c.cfg.DumpDir, file), out, 0o600)
 		if err == nil {
 			return
 		}
 	}
-	c.log.Warn("arlo: dump failed", "path", path)
+	c.log.Warn("arlo: dump failed", "name", name)
 }
 
 func redact(v any) any {

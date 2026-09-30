@@ -16,6 +16,7 @@ type session struct {
 	DeviceID        string   `json:"deviceId"`
 	UserID          string   `json:"userId,omitempty"`
 	Token           string   `json:"token,omitempty"`
+	Expires         int64    `json:"expires,omitempty"` // Unix time
 	BrowserAuthCode string   `json:"browserAuthCode,omitempty"`
 	Cookies         []cookie `json:"cookies,omitempty"`
 }
