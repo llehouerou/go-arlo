@@ -18,8 +18,6 @@ func main() {
 	defer stop()
 	var err error
 	switch os.Args[1] {
-	case "probe":
-		err = probe()
 	case "login":
 		err = login(ctx, os.Args[2:])
 	case "watch":
@@ -39,7 +37,6 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `usage: arlo <command> [flags]
 
 commands:
-  probe   check that Cloudflare lets us reach Arlo (no credentials sent)
   login   open a session, with 2FA if needed, and save it
   watch   follow Arlo's event stream and print events
   mode    print the location's mode; mode [flags] standby|armHome|armAway sets it

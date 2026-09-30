@@ -61,11 +61,10 @@ type Client struct {
 
 	// Once Run has started, only its goroutine touches these; SetMode goes
 	// through cmds.
-	sess          session
-	mqttURL       string
-	multiLocation bool
-	bases         []device
-	loc           location
+	sess    session
+	mqttURL string
+	bases   []device
+	loc     location
 
 	cmds      chan command
 	connected atomic.Bool

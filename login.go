@@ -254,13 +254,12 @@ func (c *Client) startSession(ctx context.Context) error {
 		return fmt.Errorf("arlo: start session: %w", err)
 	}
 	var s struct {
-		MQTTURL       string `json:"mqttUrl"`
-		MultiLocation bool   `json:"supportsMultiLocation"`
+		MQTTURL string `json:"mqttUrl"`
 	}
 	if err := json.Unmarshal(data, &s); err != nil {
 		return fmt.Errorf("arlo: start session: %w", err)
 	}
-	c.mqttURL, c.multiLocation = s.MQTTURL, s.MultiLocation
-	c.log.Info("arlo: session started", "mqttUrl", s.MQTTURL, "multiLocation", s.MultiLocation)
+	c.mqttURL = s.MQTTURL
+	c.log.Info("arlo: session started", "mqttUrl", s.MQTTURL)
 	return nil
 }

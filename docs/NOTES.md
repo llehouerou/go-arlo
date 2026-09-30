@@ -1,8 +1,9 @@
-# go-arlo plan
+# go-arlo notes
 
-A native Go client for Arlo's cloud API, ported from pyaarlo 0.8.0.23, so Oiko
-can watch and control the Arlo cameras without Home Assistant. Plain Go
-library plus a small CLI; Oiko-agnostic.
+The decisions behind go-arlo and what Arlo was observed to do, with dates:
+the API is undocumented and changes. go-arlo was written so Oiko, a home
+automation platform, can watch and control Arlo cameras without Home
+Assistant; the library itself knows nothing of Oiko.
 
 ## Scope
 
@@ -17,14 +18,14 @@ library plus a small CLI; Oiko-agnostic.
 | Topic | Choice |
 |---|---|
 | Module | `github.com/llehouerou/go-arlo`, flake devShell with `go_1_27` |
-| Account | `a dedicated Arlo account`; HA's aarlo integration is stopped while testing (one account, one session) |
+| Account | a dedicated granted-access account; its Home Assistant integration was stopped while testing |
 | HTTP | `github.com/imroc/req/v3` with `ImpersonateChrome()`; Arlo iOS user agent like pyaarlo |
 | MQTT | `github.com/eclipse/paho.golang` (v5, already in Oiko), proven against Arlo's broker in the login spike |
 | IMAP | `github.com/emersion/go-imap/v2` |
 | 2FA code | injected `func(ctx, since time.Time) (string, error)`; IMAP (newest `do_not_reply@arlo.com` mail after `since`) and stdin (CLI) implementations |
 | Session | JSON file at a caller-given path, 0600, atomic write: user device id, browser auth code, cookies, token, expiry |
 | API | `Client.Run(ctx, func(Event)) error` blocks and owns login, MQTT and reconnects; commands are methods (`SetMode`) on the session `Run` holds |
-| Events | concrete types: `Connection`, `DeviceState` (serial, connected, battery), `Motion`, `ModeChanged` |
+| Events | concrete types: `Connection`, `Devices`, `DeviceState` (serial, connected, battery), `Motion`, `ModeChanged` |
 | the production host | session at `/var/lib/oiko/arlo-session.json`; secrets from sops-nix via systemd `LoadCredential` (done in Oiko/infrastructure, not here) |
 
 ## Arlo's auth rate limit
@@ -182,5 +183,3 @@ account; the `logout` pyaarlo warns about must come from something else.
 - Rule: one owner per session file, never a copy, never the same file on
   two hosts. The session is now saved right after the auth succeeds, before
   `validateAccessToken`, so a failure there does not lose the new cookie.
-Then, outside this repo: the `home.Port` adapter in Oiko, `*File` options in
-Oiko's NixOS module, sops secrets on the production host.

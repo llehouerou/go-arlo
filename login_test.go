@@ -121,7 +121,7 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f.t.Errorf("session/v3 auth %q", r.Header.Get("Authorization"))
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{
-			"mqttUrl": "ssl://mqtt.example:8883", "supportsMultiLocation": true,
+			"mqttUrl": "ssl://mqtt.example:8883",
 		}})
 	default:
 		f.t.Errorf("unexpected %s", r.URL.Path)
@@ -152,8 +152,8 @@ func TestLogin(t *testing.T) {
 		if err := c.Login(t.Context()); err != nil {
 			return err
 		}
-		if c.mqttURL != "ssl://mqtt.example:8883" || !c.multiLocation {
-			t.Errorf("session: %q %v", c.mqttURL, c.multiLocation)
+		if c.mqttURL != "ssl://mqtt.example:8883" {
+			t.Errorf("mqttUrl %q", c.mqttURL)
 		}
 		return nil
 	}
