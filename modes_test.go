@@ -32,10 +32,9 @@ func TestSetMode(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(Config{})
-	c.apiHost = srv.URL
-	c.sess = session{UserID: "U1", Token: "tok"}
-	if err := c.setMode(t.Context(), location{ID: "L1"}, ArmHome); err != nil {
+	a := newAPI(Config{}, srv.URL, srv.URL)
+	a.sess = session{UserID: "U1", Token: "tok"}
+	if err := a.setMode(t.Context(), location{ID: "L1"}, ArmHome); err != nil {
 		t.Fatal(err)
 	}
 	if put != `{"mode":"armHome"}` {

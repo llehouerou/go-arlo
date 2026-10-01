@@ -28,44 +28,44 @@ type cookie struct {
 
 // load reads the session file and restores its cookies. A missing file is an
 // empty session.
-func (c *Client) load() error {
-	b, err := os.ReadFile(c.cfg.SessionPath)
+func (a *api) load() error {
+	b, err := os.ReadFile(a.sessionPath)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(b, &c.sess); err != nil {
+	if err := json.Unmarshal(b, &a.sess); err != nil {
 		return err
 	}
-	u, err := url.Parse(c.authHost + "/")
+	u, err := url.Parse(a.authHost + "/")
 	if err != nil {
 		return err
 	}
 	var cs []*http.Cookie
-	for _, ck := range c.sess.Cookies {
+	for _, ck := range a.sess.Cookies {
 		cs = append(cs, &http.Cookie{Name: ck.Name, Value: ck.Value, Path: "/"})
 	}
-	c.jar.SetCookies(u, cs)
+	a.jar.SetCookies(u, cs)
 	return nil
 }
 
 // save writes the session file atomically, readable by its owner only.
-func (c *Client) save() error {
-	u, err := url.Parse(c.authHost + "/")
+func (a *api) save() error {
+	u, err := url.Parse(a.authHost + "/")
 	if err != nil {
 		return err
 	}
-	c.sess.Cookies = nil
-	for _, ck := range c.jar.Cookies(u) {
-		c.sess.Cookies = append(c.sess.Cookies, cookie{ck.Name, ck.Value})
+	a.sess.Cookies = nil
+	for _, ck := range a.jar.Cookies(u) {
+		a.sess.Cookies = append(a.sess.Cookies, cookie{ck.Name, ck.Value})
 	}
-	b, err := json.MarshalIndent(c.sess, "", "  ")
+	b, err := json.MarshalIndent(a.sess, "", "  ")
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(c.cfg.SessionPath), ".arlo-session-*")
+	f, err := os.CreateTemp(filepath.Dir(a.sessionPath), ".arlo-session-*")
 	if err != nil {
 		return err
 	}
@@ -77,5 +77,5 @@ func (c *Client) save() error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(f.Name(), c.cfg.SessionPath)
+	return os.Rename(f.Name(), a.sessionPath)
 }

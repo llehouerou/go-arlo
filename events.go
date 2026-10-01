@@ -84,15 +84,15 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 	if err := c.Login(ctx); err != nil {
 		return err
 	}
-	renewIn := time.Until(c.expires()) - renewBefore
+	renewIn := time.Until(c.api.expires()) - renewBefore
 	if renewIn <= 0 {
-		return fmt.Errorf("arlo: token expires at %v, too soon to use", c.expires())
+		return fmt.Errorf("arlo: token expires at %v, too soon to use", c.api.expires())
 	}
-	devs, err := c.devices(ctx)
+	devs, err := c.api.devices(ctx)
 	if err != nil {
 		return fmt.Errorf("arlo: %w", err)
 	}
-	st := newStream(c.sess.UserID, devs)
+	st := newStream(c.api.sess.UserID, devs)
 	emitAll := func(es []Event) {
 		for _, e := range es {
 			emit(e)
@@ -130,7 +130,7 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 	// minute.
 	pingAll := func() error {
 		for _, b := range st.bases {
-			err := c.ping(ctx, b)
+			err := c.api.ping(ctx, b)
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
@@ -150,7 +150,7 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 	// change slipped past the event stream.
 	refreshAll := func() {
 		for _, b := range st.bases {
-			err := c.notify(ctx, b, map[string]any{"action": "get", "resource": "devices", "publishResponse": false})
+			err := c.api.notify(ctx, b, map[string]any{"action": "get", "resource": "devices", "publishResponse": false})
 			if err != nil && ctx.Err() == nil {
 				c.log.Warn("arlo: state refresh failed", "base", b.Name, "err", err)
 			}
@@ -187,7 +187,7 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 		case cmd := <-c.cmds:
 			cmd.done <- cmd.fn(ctx, st, emit)
 		case m := <-msgs:
-			c.dump("mqtt"+m.Topic, map[string]any{"topic": m.Topic}, m.Payload)
+			c.api.dump("mqtt"+m.Topic, map[string]any{"topic": m.Topic}, m.Payload)
 			es, err := st.received(m.Payload)
 			if errors.Is(err, errLoggedOut) {
 				return err
@@ -205,12 +205,12 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 // connectMQTT connects to the broker the session named, as pyaarlo does.
 // Received messages go to msgs until ctx ends.
 func (c *Client) connectMQTT(ctx context.Context, msgs chan<- *paho.Publish) (*paho.Client, error) {
-	u, err := url.Parse(c.mqttURL)
+	u, err := url.Parse(c.api.mqttURL)
 	if err != nil {
 		return nil, err
 	}
 	if u.Scheme != "ssl" {
-		return nil, fmt.Errorf("unsupported MQTT URL %q", c.mqttURL)
+		return nil, fmt.Errorf("unsupported MQTT URL %q", c.api.mqttURL)
 	}
 	conn, err := (&tls.Dialer{
 		NetDialer: &net.Dialer{Timeout: 15 * time.Second},
@@ -237,10 +237,10 @@ func (c *Client) connectMQTT(ctx context.Context, msgs chan<- *paho.Publish) (*p
 	})
 	_, err = cl.Connect(ctx, &paho.Connect{
 		// pyaarlo: the last 10 digits must be random.
-		ClientID:     fmt.Sprintf("user_%s_%010d", c.sess.UserID, rand.IntN(1e10)),
-		Username:     c.sess.UserID,
+		ClientID:     fmt.Sprintf("user_%s_%010d", c.api.sess.UserID, rand.IntN(1e10)),
+		Username:     c.api.sess.UserID,
 		UsernameFlag: true,
-		Password:     []byte(c.sess.Token),
+		Password:     []byte(c.api.sess.Token),
 		PasswordFlag: true,
 		KeepAlive:    60,
 		CleanStart:   true,

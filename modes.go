@@ -36,13 +36,13 @@ type location struct {
 }
 
 // modeHeaders are the extra headers of pyaarlo's location calls.
-func (c *Client) modeHeaders() map[string]string {
-	return map[string]string{"x-forwarded-user": c.sess.UserID, "x-user-device-id": c.sess.UserID}
+func (a *api) modeHeaders() map[string]string {
+	return map[string]string{"x-forwarded-user": a.sess.UserID, "x-user-device-id": a.sess.UserID}
 }
 
 // locations fetches the account's own and shared locations.
-func (c *Client) locations(ctx context.Context) (own, shared []location, err error) {
-	data, err := c.apiCall(ctx, http.MethodGet, "/hmsdevicemanagement/users/"+c.sess.UserID+"/locations", nil, nil)
+func (a *api) locations(ctx context.Context) (own, shared []location, err error) {
+	data, err := a.apiCall(ctx, http.MethodGet, "/hmsdevicemanagement/users/"+a.sess.UserID+"/locations", nil, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -57,9 +57,9 @@ func (c *Client) locations(ctx context.Context) (own, shared []location, err err
 }
 
 // activeMode reads a location's mode and the revision a change must quote.
-func (c *Client) activeMode(ctx context.Context, loc location) (Mode, int64, error) {
-	data, err := c.apiCall(ctx, http.MethodGet,
-		"/hmsweb/automation/v3/activeMode?locationId="+url.QueryEscape(loc.ID), c.modeHeaders(), nil)
+func (a *api) activeMode(ctx context.Context, loc location) (Mode, int64, error) {
+	data, err := a.apiCall(ctx, http.MethodGet,
+		"/hmsweb/automation/v3/activeMode?locationId="+url.QueryEscape(loc.ID), a.modeHeaders(), nil)
 	if err != nil {
 		return "", 0, err
 	}
@@ -77,14 +77,14 @@ func (c *Client) activeMode(ctx context.Context, loc location) (Mode, int64, err
 
 // setMode changes a location's mode, quoting the current revision as
 // pyaarlo does.
-func (c *Client) setMode(ctx context.Context, loc location, mode Mode) error {
-	_, rev, err := c.activeMode(ctx, loc)
+func (a *api) setMode(ctx context.Context, loc location, mode Mode) error {
+	_, rev, err := a.activeMode(ctx, loc)
 	if err != nil {
 		return err
 	}
-	_, err = c.apiCall(ctx, http.MethodPut,
+	_, err = a.apiCall(ctx, http.MethodPut,
 		"/hmsweb/automation/v3/activeMode?locationId="+url.QueryEscape(loc.ID)+"&revision="+strconv.FormatInt(rev, 10),
-		c.modeHeaders(), map[string]any{"mode": mode})
+		a.modeHeaders(), map[string]any{"mode": mode})
 	return err
 }
 
@@ -125,7 +125,7 @@ func (c *Client) SetMode(ctx context.Context, mode Mode) error {
 		if err := c.resolveLocation(ctx, st); err != nil {
 			return fmt.Errorf("arlo: set mode %s: %w", mode, err)
 		}
-		if err := c.setMode(ctx, st.loc, mode); err != nil {
+		if err := c.api.setMode(ctx, st.loc, mode); err != nil {
 			return fmt.Errorf("arlo: set mode %s: %w", mode, err)
 		}
 		emit(st.modeChanged(mode))
@@ -139,7 +139,7 @@ func (c *Client) resolveLocation(ctx context.Context, st *stream) error {
 	if st.loc.ID != "" {
 		return nil
 	}
-	own, shared, err := c.locations(ctx)
+	own, shared, err := c.api.locations(ctx)
 	if err != nil {
 		return err
 	}
@@ -151,7 +151,7 @@ func (c *Client) readMode(ctx context.Context, st *stream, emit func(Event)) err
 	if err := c.resolveLocation(ctx, st); err != nil {
 		return fmt.Errorf("arlo: read mode: %w", err)
 	}
-	mode, _, err := c.activeMode(ctx, st.loc)
+	mode, _, err := c.api.activeMode(ctx, st.loc)
 	if err != nil {
 		return fmt.Errorf("arlo: read mode: %w", err)
 	}

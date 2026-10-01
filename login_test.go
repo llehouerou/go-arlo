@@ -144,16 +144,16 @@ func TestLogin(t *testing.T) {
 
 	codes := 0
 	login := func() error {
-		c := New(Config{
+		cfg := Config{
 			Email: "me@example.com", Password: "secret", SessionPath: path,
 			Code: func(context.Context, time.Time) (string, error) { codes++; return "123456", nil },
-		})
-		c.authHost, c.apiHost = srv.URL, srv.URL
+		}
+		c := newClient(cfg, newAPI(cfg, srv.URL, srv.URL))
 		if err := c.Login(t.Context()); err != nil {
 			return err
 		}
-		if c.mqttURL != "ssl://mqtt.example:8883" {
-			t.Errorf("mqttUrl %q", c.mqttURL)
+		if c.api.mqttURL != "ssl://mqtt.example:8883" {
+			t.Errorf("mqttUrl %q", c.api.mqttURL)
 		}
 		return nil
 	}

@@ -29,3 +29,10 @@ _Avoid_: site, home
 A Location's alarm state: standby, armHome, armAway, or a custom mode reported
 as Arlo names it.
 _Avoid_: alarm state, arming
+
+**Session**:
+What lets go-arlo act as the account across restarts: a device id, the
+trust cookie that makes Arlo treat it as a trusted browser (no two-factor),
+and the token while it is valid. The trust cookie rotates on every
+authentication, so one Session per account and place, never a copy.
+_Avoid_: credentials, login

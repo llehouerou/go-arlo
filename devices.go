@@ -21,8 +21,8 @@ type device struct {
 	Topics   []string `json:"allowedMqttTopics"`
 }
 
-func (c *Client) devices(ctx context.Context) ([]device, error) {
-	data, err := c.apiCall(ctx, http.MethodGet,
+func (a *api) devices(ctx context.Context) ([]device, error) {
+	data, err := a.apiCall(ctx, http.MethodGet,
 		"/hmsweb/v2/users/devices?t="+strconv.FormatInt(time.Now().UnixMilli(), 10), nil, nil)
 	if err != nil {
 		return nil, err
@@ -35,25 +35,25 @@ func (c *Client) devices(ctx context.Context) ([]device, error) {
 }
 
 // webID is how Arlo addresses this client in notifications.
-func (c *Client) webID() string { return c.sess.UserID + "_web" }
+func (a *api) webID() string { return a.sess.UserID + "_web" }
 
 // notify posts a message for a base station; Arlo relays it and the answer
 // comes back on the event stream.
-func (c *Client) notify(ctx context.Context, base device, body map[string]any) error {
+func (a *api) notify(ctx context.Context, base device, body map[string]any) error {
 	body["to"] = base.ID
-	body["from"] = c.webID()
+	body["from"] = a.webID()
 	body["transId"] = "web!" + uuid.NewV4().String()
-	_, err := c.apiCall(ctx, http.MethodPost, "/hmsweb/users/devices/notify/"+base.ID,
+	_, err := a.apiCall(ctx, http.MethodPost, "/hmsweb/users/devices/notify/"+base.ID,
 		map[string]string{"xcloudId": base.XCloudID}, body)
 	return err
 }
 
 // ping subscribes this client to a base station's events, as pyaarlo does
 // every minute.
-func (c *Client) ping(ctx context.Context, base device) error {
-	return c.notify(ctx, base, map[string]any{
+func (a *api) ping(ctx context.Context, base device) error {
+	return a.notify(ctx, base, map[string]any{
 		"action":          "set",
-		"resource":        "subscriptions/" + c.webID(),
+		"resource":        "subscriptions/" + a.webID(),
 		"publishResponse": false,
 		"properties":      map[string]any{"devices": []string{base.ID}},
 	})
