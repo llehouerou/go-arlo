@@ -183,3 +183,43 @@ account; the `logout` pyaarlo warns about must come from something else.
 - Rule: one owner per session file, never a copy, never the same file on
   two hosts. The session is now saved right after the auth succeeds, before
   `validateAccessToken`, so a failure there does not lose the new cookie.
+- Confirmed at 19:26: with a single owner, the renewal went through the
+  trusted browser, no 2FA.
+
+## Not yet ported from pyaarlo (roadmap, 2026-09-30)
+
+What pyaarlo does that go-arlo does not, ranked by use for a home automation
+host. Left out: doorbells, lights, sensors, audio playback, nightlight and
+flood/spotlights (no such hardware here).
+
+1. **Free: the data already arrives.** The base's answer to `get devices`
+   (every ten minutes) also carries, per camera: `signalStrength`,
+   `chargingState` / `chargerTech` / `batteryTech`, `activityState`
+   (`idle`, `alertStreamActive`, `userStreamActive`), `audioDetected` (a
+   second trigger), `privacyActive` / `cameraOff`, `swVersion` /
+   `updateAvailable` (base too). Only `DeviceState` needs more fields.
+2. **Base siren** (`base.py` `siren_on(duration, volume)`, `siren_off`):
+   notify `{action: set, resource: siren, publishResponse: true,
+   properties: {sirenState: on|off, duration, volume (1-8), pattern:
+   alarm}}`. The VMB4000 has one (pyaarlo: models `VMB400*`, `VMB450*`).
+   Makes a real alarm out of other sensors.
+3. **New recording events** (media library): pyaarlo also subscribes to
+   `u/<userId>/in/library/{add,update,remove}`; the library itself is
+   `GET /hmsweb/users/library` (`media.py`). Gives thumbnail and video URLs:
+   notifications with the picture. Cheaper variant: last image and capture
+   per camera (`presignedLastImageUrl`, `captured_today`).
+4. **Camera on/off** (`camera.py` `turn_on`/`turn_off`): notify
+   `{action: set, resource: cameras/<id>, publishResponse: true,
+   properties: {privacyActive: bool}}`. Privacy while someone is home.
+5. **Base restart** (`POST /hmsweb/users/devices/restart` `{deviceId}`):
+   a remedy for a watchdog, while the base still reaches the cloud.
+6. **Snapshot on demand** (`request_snapshot`, notify `fullFrameSnapshot`,
+   presigned URL back over MQTT) and **live stream** (`start_stream`,
+   `POST /hmsweb/users/devices/startStream`, an RTSPS URL from the cloud;
+   motion packets already carry a `streamURL`). Both wake the camera and
+   cost battery; the stream fits a go2rtc-based camera view.
+
+Low value: motion sensitivity settings (set once in the app), custom modes
+and schedules (pyaarlo does not handle V3 schedules; the owner's run on
+Arlo's side), SSE fallback (only if `mqttUrl` turns `wss`), RATLS local
+storage access.
