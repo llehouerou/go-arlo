@@ -23,3 +23,7 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 )
+
+// Published before the history was rewritten to drop personal data from the
+// notes; their tags are gone. Use v0.2.0 or later.
+retract [v0.1.0, v0.1.1]
