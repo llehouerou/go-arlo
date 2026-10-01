@@ -30,11 +30,19 @@ var (
 	errLoggedOut = errors.New("logged out by Arlo: did another session take the account?")
 )
 
+// ErrAlreadyRunning is Run's error while another Run of the same Client is
+// going.
+var ErrAlreadyRunning = errors.New("arlo: Run already running")
+
 // Run follows Arlo's event stream until ctx ends, logging in, renewing the
 // token and reconnecting as needed, with a backoff that spares Arlo's auth
 // rate limit. handle is called from Run's goroutine, one event at a time.
 // Run returns ctx's error, or an error retrying cannot fix.
 func (c *Client) Run(ctx context.Context, handle func(Event)) error {
+	if !c.running.CompareAndSwap(false, true) {
+		return ErrAlreadyRunning
+	}
+	defer c.running.Store(false)
 	up := false
 	emit := func(e Event) {
 		if cn, ok := e.(Connection); ok {
@@ -81,7 +89,7 @@ func (c *Client) Run(ctx context.Context, handle func(Event)) error {
 // follow runs one session: login, MQTT, base pings, until the connection
 // drops or the token is due for renewal.
 func (c *Client) follow(ctx context.Context, emit func(Event)) error {
-	if err := c.Login(ctx); err != nil {
+	if err := c.login(ctx); err != nil {
 		return err
 	}
 	renewIn := time.Until(c.api.expires()) - renewBefore

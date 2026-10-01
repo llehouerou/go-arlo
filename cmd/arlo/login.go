@@ -14,9 +14,9 @@ import (
 	arlo "github.com/llehouerou/go-arlo"
 )
 
-// clientFlags declares the flags every command talking to Arlo needs and
-// returns the function building the client once they are parsed.
-func clientFlags(fs *flag.FlagSet) func() (*arlo.Client, error) {
+// configFlags declares the flags every command talking to Arlo needs and
+// returns the function building the config once they are parsed.
+func configFlags(fs *flag.FlagSet) func() (arlo.Config, error) {
 	email := fs.String("email", "", "Arlo account email")
 	passwordFile := fs.String("password-file", "", "file holding the Arlo password")
 	sessionPath := fs.String("session", "arlo.session.json", "session file")
@@ -26,25 +26,25 @@ func clientFlags(fs *flag.FlagSet) func() (*arlo.Client, error) {
 	dump := fs.String("dump", "debug", "directory for redacted response dumps; empty to disable")
 	verbose := fs.Bool("v", false, "debug logs")
 
-	return func() (*arlo.Client, error) {
+	return func() (arlo.Config, error) {
 		if *verbose {
 			slog.SetLogLoggerLevel(slog.LevelDebug)
 		}
 		if *email == "" || *passwordFile == "" {
-			return nil, errors.New("-email and -password-file are required")
+			return arlo.Config{}, errors.New("-email and -password-file are required")
 		}
 		password, err := readSecret(*passwordFile)
 		if err != nil {
-			return nil, err
+			return arlo.Config{}, err
 		}
 		code := typedCode
 		if *imapUser != "" {
 			if *imapAddr == "" {
-				return nil, errors.New("-imap-user needs -imap-addr")
+				return arlo.Config{}, errors.New("-imap-user needs -imap-addr")
 			}
 			imapPassword, err := readSecret(*imapPasswordFile)
 			if err != nil {
-				return nil, err
+				return arlo.Config{}, err
 			}
 			fromMail := arlo.IMAPCode(*imapAddr, *imapUser, imapPassword)
 			code = func(ctx context.Context, since time.Time) (string, error) {
@@ -54,25 +54,25 @@ func clientFlags(fs *flag.FlagSet) func() (*arlo.Client, error) {
 				return fromMail(ctx, since)
 			}
 		}
-		return arlo.New(arlo.Config{
+		return arlo.Config{
 			Email:       *email,
 			Password:    password,
 			SessionPath: *sessionPath,
 			Code:        code,
 			DumpDir:     *dump,
-		}), nil
+		}, nil
 	}
 }
 
 func login(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("login", flag.ExitOnError)
-	client := clientFlags(fs)
+	config := configFlags(fs)
 	_ = fs.Parse(args)
-	c, err := client()
+	cfg, err := config()
 	if err != nil {
 		return err
 	}
-	if err := c.Login(ctx); err != nil {
+	if err := arlo.Login(ctx, cfg); err != nil {
 		return err
 	}
 	fmt.Println("logged in")

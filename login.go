@@ -26,11 +26,19 @@ var (
 	errNeedsCode = errors.New("2FA needed but no code source configured")
 )
 
-// Login opens a session. It reuses the saved token while Arlo accepts it and
+// Login opens a Session once and saves it, then returns: to set it up ahead
+// of Run, for instance through the first email two-factor. Never run it
+// while a Client's Run uses the same SessionPath: each authentication
+// rotates the trust cookie, and the loser's copy costs a new two-factor.
+func Login(ctx context.Context, cfg Config) error {
+	return New(cfg).login(ctx)
+}
+
+// login opens a session. It reuses the saved token while Arlo accepts it and
 // it is not about to expire; otherwise it authenticates once, with
 // two-factor by email until Arlo trusts this client as a browser. Arlo rate
-// limits auth attempts with a long cooldown, so Login never retries.
-func (c *Client) Login(ctx context.Context) error {
+// limits auth attempts with a long cooldown, so login never retries.
+func (c *Client) login(ctx context.Context) error {
 	a := c.api
 	if err := a.load(); err != nil {
 		return fmt.Errorf("arlo: read session: %w", err)

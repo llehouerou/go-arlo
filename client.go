@@ -41,15 +41,16 @@ type Client struct {
 	cfg Config
 	log *slog.Logger
 
-	// Once Run has started, only its goroutine touches api; SetMode goes
-	// through cmds.
+	// Only Run's goroutine touches api: Run refuses to run twice at once,
+	// and every other public method hands its work to Run through do.
 	api *api
 
 	cmds      chan command
+	running   atomic.Bool
 	connected atomic.Bool
 }
 
-// New returns a client. It does not touch the network: see Login.
+// New returns a client. It does not touch the network: see Run.
 func New(cfg Config) *Client {
 	return newClient(cfg, newAPI(cfg, defaultAuthHost, defaultAPIHost))
 }

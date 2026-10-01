@@ -149,7 +149,7 @@ func TestLogin(t *testing.T) {
 			Code: func(context.Context, time.Time) (string, error) { codes++; return "123456", nil },
 		}
 		c := newClient(cfg, newAPI(cfg, srv.URL, srv.URL))
-		if err := c.Login(t.Context()); err != nil {
+		if err := c.login(t.Context()); err != nil {
 			return err
 		}
 		if c.api.mqttURL != "ssl://mqtt.example:8883" {

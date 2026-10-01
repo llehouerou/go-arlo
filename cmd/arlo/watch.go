@@ -11,13 +11,13 @@ import (
 
 func watch(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("watch", flag.ExitOnError)
-	client := clientFlags(fs)
+	config := configFlags(fs)
 	_ = fs.Parse(args)
-	c, err := client()
+	cfg, err := config()
 	if err != nil {
 		return err
 	}
-	return c.Run(ctx, func(e arlo.Event) {
+	return arlo.New(cfg).Run(ctx, func(e arlo.Event) {
 		fmt.Println(time.Now().Format(time.TimeOnly), describe(e))
 	})
 }

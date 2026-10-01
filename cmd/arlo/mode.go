@@ -14,7 +14,7 @@ import (
 // stream for a few seconds to show Arlo's confirmation.
 func mode(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("mode", flag.ExitOnError)
-	client := clientFlags(fs)
+	config := configFlags(fs)
 	_ = fs.Parse(args)
 	target := arlo.Mode(fs.Arg(0))
 	switch target {
@@ -22,10 +22,11 @@ func mode(ctx context.Context, args []string) error {
 	default:
 		return fmt.Errorf("mode: %q is not standby, armHome or armAway", target)
 	}
-	c, err := client()
+	cfg, err := config()
 	if err != nil {
 		return err
 	}
+	c := arlo.New(cfg)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

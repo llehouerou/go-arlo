@@ -40,11 +40,16 @@ err := c.SetMode(ctx, arlo.ArmHome) // arlo.ErrNotConnected while Run is not con
 stations every minute, asks them for their devices' state every ten minutes,
 renews the two-hour token before it expires, and reconnects with a backoff.
 The handler is called from `Run`'s goroutine, one event at a time.
-`SetMode` executes on that same goroutine.
+`SetMode` executes on that same goroutine. A second `Run` of the same client
+returns `arlo.ErrAlreadyRunning`.
+
+`arlo.Login(ctx, cfg)` logs in once and saves the session, to get through
+the first email two-factor ahead of `Run`. Never alongside a `Run` on the
+same session file.
 
 ## Things Arlo imposes
 
-- **Auth attempts are rate limited with a long cooldown.** `Login` never
+- **Auth attempts are rate limited with a long cooldown.** A login never
   retries, reuses the saved token while it is valid, and `Run` waits at
   least a minute (an hour after a refused auth) between attempts.
 - **Two-factor is by email until the client is a trusted browser.** The
