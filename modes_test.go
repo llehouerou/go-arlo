@@ -43,26 +43,6 @@ func TestSetMode(t *testing.T) {
 	}
 }
 
-// Shape of a granted-access account: an empty location of its own, and the
-// owner's location holding the base.
-func TestLocation(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"success":true,"data":{
-			"userLocations":[{"locationId":"own","locationName":"Home"}],
-			"sharedLocations":[{"locationId":"shared","locationName":"Home","gatewayDeviceIds":["OWNER_B1"]}]}}`)
-	}))
-	defer srv.Close()
-	c := New(Config{})
-	c.apiHost = srv.URL
-	loc, err := c.location(t.Context(), []device{{ID: "B1"}})
-	if err != nil || loc.ID != "shared" {
-		t.Errorf("location %+v, %v", loc, err)
-	}
-	if _, err := c.location(t.Context(), []device{{ID: "B2"}}); err == nil {
-		t.Error("found a location for an unknown base")
-	}
-}
-
 func TestSetModeNeedsRun(t *testing.T) {
 	if err := New(Config{}).SetMode(t.Context(), ArmHome); !errors.Is(err, ErrNotConnected) {
 		t.Errorf("err %v", err)

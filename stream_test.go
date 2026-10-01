@@ -1,0 +1,163 @@
+package arlo
+
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"testing"
+)
+
+// The account of the production tests: base B with its siren pseudo device, and
+// cameras C1, C2. Its location is shared by the owner.
+func testStream(t *testing.T, located bool) *stream {
+	t.Helper()
+	topics := []string{"d/X/out/cameras/#", "d/X/out/devices/#"}
+	st := newStream("U", []device{
+		{ID: "B", Type: "basestation", Name: "Base", ParentID: "B", Topics: topics},
+		{ID: "B", Type: "siren", ParentID: "B", Topics: topics},
+		{ID: "C1", Type: "camera", Name: "Gate", ParentID: "B", Topics: topics},
+		{ID: "C2", Type: "camera", Name: "Porch", ParentID: "B", Topics: topics},
+	})
+	if located {
+		if err := st.located(
+			[]location{{ID: "own", Name: "Home"}},
+			[]location{{ID: "L1", Name: "Home", Gateways: []string{"OWNER_B"}}},
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return st
+}
+
+func TestNewStream(t *testing.T) {
+	st := testStream(t, false)
+	if want := []string{"d/X/out/cameras/#", "d/X/out/devices/#", "u/U/in/userSession/connect", "u/U/in/userSession/disconnect"}; !slices.Equal(st.topics, want) {
+		t.Errorf("topics %q", st.topics)
+	}
+	want := Devices{
+		{ID: "B", Name: "Base", Type: "basestation"},
+		{ID: "C1", Name: "Gate", Type: "camera", BaseID: "B"},
+		{ID: "C2", Name: "Porch", Type: "camera", BaseID: "B"},
+	}
+	if !slices.Equal(st.devices, want) {
+		t.Errorf("devices %+v", st.devices)
+	}
+	if len(st.bases) != 1 || st.bases[0].ID != "B" {
+		t.Errorf("bases %+v", st.bases)
+	}
+}
+
+func TestStreamPinged(t *testing.T) {
+	st := testStream(t, false)
+	base := st.bases[0]
+	for _, step := range []struct {
+		err  error
+		want []string
+	}{
+		{nil, []string{"state B connected=true battery=-"}},
+		{nil, nil}, // only changes are reported
+		{errors.New("timeout"), []string{"state B connected=false battery=-"}},
+		{&apiError{status: 500}, nil},
+		{nil, []string{"state B connected=true battery=-"}},
+	} {
+		es, err := st.pinged(base, step.err)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := describeAll(es); !slices.Equal(got, step.want) {
+			t.Errorf("ping %v: got %q, want %q", step.err, got, step.want)
+		}
+	}
+	if _, err := st.pinged(base, &apiError{status: 401}); err == nil {
+		t.Error("a 401 ping did not end the connection")
+	}
+}
+
+// Packets from pyaarlo's docs/packets.md and the production host, trimmed.
+func TestStreamReceived(t *testing.T) {
+	modeChange := `{"action":"is","from":"B","resource":"devices/B/states","states":{"activeMode":"armHome","schemaVersion":1,"source":"client-U"}}`
+	cases := []struct {
+		name    string
+		located bool
+		raw     string
+		want    []string
+	}{
+		{"subscription reply", true, `{"action":"is","from":"B","properties":{"devices":["B"]},"resource":"subscriptions/U_web"}`, nil},
+		{"v2 base mode change", true, `{"B":{"activeModes":["mode1"]},"resource":"activeAutomations"}`, nil},
+		{"motion", true, `{"action":"is","from":"B","properties":{"motionDetected":"True"},"resource":"cameras/C1"}`,
+			[]string{"motion C1 true"}},
+		{"motion as bool, stop", true, `{"action":"is","properties":{"motionDetected":false},"resource":"cameras/C1"}`,
+			[]string{"motion C1 false"}},
+		{"camera battery", true, `{"action":"is","properties":{"batteryLevel":12,"connectionState":"unavailable"},"resource":"cameras/C2"}`,
+			[]string{"state C2 connected=false battery=12"}},
+		{"base answer to get devices", true, `{"action":"is","resource":"devices","from":"B","devices":{
+			"C2":{"properties":{"batteryLevel":45,"connectionState":"available","motionDetected":"False"},"states":{}},
+			"C1":{"properties":{"connectionState":"thermalShutdownCold"}},
+			"B":{"properties":{"connectivity":[{"connected":"True"}],"state":"idle"},"states":{}}}}`,
+			[]string{"state C1 connected=false battery=-", "state C2 connected=true battery=45"}},
+		// Real VMB4000 packet after a SetMode, trimmed.
+		{"base mode change", true, modeChange, []string{"mode L1 Home armHome"}},
+		{"base mode change before the location is known", false, modeChange, nil},
+		{"camera mode change", true, `{"action":"is","resource":"devices/C1/states","states":{"activeMode":"armHome"}}`, nil},
+		{"device states without mode", true, `{"action":"is","resource":"devices/C1/states","states":{"schemaVersion":1}}`, nil},
+		{"properties as a list", true, `{"resource":"cameras/C1","properties":[{"serialNumber":"C1"}]}`, nil},
+	}
+	for _, tc := range cases {
+		es, err := testStream(t, tc.located).received([]byte(tc.raw))
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if got := describeAll(es); !slices.Equal(got, tc.want) {
+			t.Errorf("%s:\n got %q\nwant %q", tc.name, got, tc.want)
+		}
+	}
+
+	st := testStream(t, true)
+	if _, err := st.received([]byte(`{"action":"logout"}`)); !errors.Is(err, errLoggedOut) {
+		t.Errorf("logout: %v", err)
+	}
+	if _, err := st.received([]byte(`not json`)); err == nil || errors.Is(err, errLoggedOut) {
+		t.Errorf("unreadable: %v", err)
+	}
+}
+
+// Shape of a granted-access account: an empty location of its own, and the
+// owner's location holding the base.
+func TestStreamLocated(t *testing.T) {
+	st := testStream(t, true)
+	if got := describe(st.modeChanged(Standby)); got != "mode L1 Home standby" {
+		t.Errorf("located %q", got)
+	}
+	other := newStream("U", []device{{ID: "B2", Type: "basestation", ParentID: "B2"}})
+	if err := other.located(nil, []location{{ID: "L1", Gateways: []string{"OWNER_B"}}}); err == nil {
+		t.Error("found a location for an unknown base")
+	}
+}
+
+func describeAll(es []Event) []string {
+	var out []string
+	for _, e := range es {
+		out = append(out, describe(e))
+	}
+	return out
+}
+
+func describe(e Event) string {
+	switch e := e.(type) {
+	case Motion:
+		return fmt.Sprintf("motion %s %v", e.ID, e.Active)
+	case ModeChanged:
+		return fmt.Sprintf("mode %s %s %s", e.LocationID, e.LocationName, e.Mode)
+	case DeviceState:
+		conn, batt := "-", "-"
+		if e.Connected != nil {
+			conn = fmt.Sprint(*e.Connected)
+		}
+		if e.Battery != nil {
+			batt = fmt.Sprint(*e.Battery)
+		}
+		return fmt.Sprintf("state %s connected=%s battery=%s", e.ID, conn, batt)
+	}
+	return fmt.Sprintf("%#v", e)
+}

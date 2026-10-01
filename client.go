@@ -63,8 +63,6 @@ type Client struct {
 	// through cmds.
 	sess    session
 	mqttURL string
-	bases   []device
-	loc     location
 
 	cmds      chan command
 	connected atomic.Bool

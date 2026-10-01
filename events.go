@@ -3,20 +3,20 @@ package arlo
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net"
 	"net/url"
-	"slices"
 	"time"
 
 	"github.com/eclipse/paho.golang/packets"
 	"github.com/eclipse/paho.golang/paho"
 )
 
-// Event is what Run reports.
+// Event is what Run reports. DeviceState, Motion and ModeChanged report
+// states, which may repeat: a base station sends its packets once per client
+// subscribed to it, such as an open Arlo app of any account sharing it.
 type Event interface{ isEvent() }
 
 // Connection reports whether the client follows Arlo's event stream. The
@@ -92,32 +92,12 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 	if err != nil {
 		return fmt.Errorf("arlo: %w", err)
 	}
-	topics := []string{
-		"u/" + c.sess.UserID + "/in/userSession/connect",
-		"u/" + c.sess.UserID + "/in/userSession/disconnect",
+	st := newStream(c.sess.UserID, devs)
+	emitAll := func(es []Event) {
+		for _, e := range es {
+			emit(e)
+		}
 	}
-	var bases []device
-	var list Devices
-	for _, d := range devs {
-		topics = append(topics, d.Topics...)
-		// The device list also holds pseudo devices, like a base's siren
-		// under the base's own id.
-		if d.Type != "basestation" && d.Type != "camera" {
-			continue
-		}
-		if d.Type == "basestation" {
-			bases = append(bases, d)
-		}
-		dev := Device{ID: d.ID, Name: d.Name, Model: d.Model, Type: d.Type}
-		if d.ParentID != d.ID {
-			dev.BaseID = d.ParentID
-		}
-		list = append(list, dev)
-	}
-	// Each device of a base lists the same topics.
-	slices.Sort(topics)
-	topics = slices.Compact(topics)
-	c.bases, c.loc = bases, location{} // the location is resolved on first use
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -127,8 +107,8 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 		return fmt.Errorf("arlo: MQTT: %w", err)
 	}
 	defer cl.Disconnect(&paho.Disconnect{})
-	subs := make([]paho.SubscribeOptions, len(topics))
-	for i, t := range topics {
+	subs := make([]paho.SubscribeOptions, len(st.topics))
+	for i, t := range st.topics {
 		subs[i] = paho.SubscribeOptions{Topic: t}
 	}
 	ack, err := cl.Subscribe(ctx, &paho.Subscribe{Subscriptions: subs})
@@ -136,37 +116,32 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 		return fmt.Errorf("arlo: MQTT subscribe: %w", err)
 	}
 	for i, r := range ack.Reasons {
-		if r >= 0x80 && i < len(topics) {
-			c.log.Warn("arlo: MQTT subscription refused", "topic", topics[i], "reason", r)
+		if r >= 0x80 && i < len(st.topics) {
+			c.log.Warn("arlo: MQTT subscription refused", "topic", st.topics[i], "reason", r)
 		}
 	}
-	c.log.Info("arlo: event stream up", "topics", len(topics), "bases", len(bases), "renew_in", renewIn.Round(time.Second))
-	emit(list)
+	c.log.Info("arlo: event stream up", "topics", len(st.topics), "bases", len(st.bases), "renew_in", renewIn.Round(time.Second))
+	emit(st.devices)
 	emit(Connection{Up: true})
 	c.connected.Store(true)
 	defer c.connected.Store(false)
 
 	// A base is connected while it answers pings; pyaarlo pings every
-	// minute. Only changes are reported.
-	baseUp := map[string]bool{}
+	// minute.
 	pingAll := func() error {
-		for _, b := range bases {
+		for _, b := range st.bases {
 			err := c.ping(ctx, b)
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			var refused *apiError
-			if errors.As(err, &refused) && refused.status == 401 {
-				return fmt.Errorf("arlo: ping %s: %w", b.Name, err)
+			es, fatal := st.pinged(b, err)
+			if fatal != nil {
+				return fatal
 			}
 			if err != nil {
 				c.log.Warn("arlo: ping failed", "base", b.Name, "err", err)
 			}
-			up := err == nil
-			if was, seen := baseUp[b.ID]; !seen || was != up {
-				baseUp[b.ID] = up
-				emit(DeviceState{ID: b.ID, Connected: &up})
-			}
+			emitAll(es)
 		}
 		return nil
 	}
@@ -174,13 +149,13 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 	// asks every ten minutes. The mode is read at the same pace, in case a
 	// change slipped past the event stream.
 	refreshAll := func() {
-		for _, b := range bases {
+		for _, b := range st.bases {
 			err := c.notify(ctx, b, map[string]any{"action": "get", "resource": "devices", "publishResponse": false})
 			if err != nil && ctx.Err() == nil {
 				c.log.Warn("arlo: state refresh failed", "base", b.Name, "err", err)
 			}
 		}
-		if err := c.readMode(ctx, emit); err != nil && ctx.Err() == nil {
+		if err := c.readMode(ctx, st, emit); err != nil && ctx.Err() == nil {
 			c.log.Warn("arlo: mode refresh failed", "err", err)
 		}
 	}
@@ -210,28 +185,19 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 		case <-refresh.C:
 			refreshAll()
 		case cmd := <-c.cmds:
-			cmd.done <- cmd.fn(ctx, emit)
+			cmd.done <- cmd.fn(ctx, st, emit)
 		case m := <-msgs:
 			c.dump("mqtt"+m.Topic, map[string]any{"topic": m.Topic}, m.Payload)
-			var msg packet
-			err := json.Unmarshal(m.Payload, &msg)
+			es, err := st.received(m.Payload)
+			if errors.Is(err, errLoggedOut) {
+				return err
+			}
 			if err != nil {
 				c.log.Warn("arlo: unreadable MQTT message", "topic", m.Topic, "err", err)
 				continue
 			}
-			if msg.Action == "logout" {
-				return errLoggedOut
-			}
-			c.log.Debug("arlo: MQTT message", "topic", m.Topic, "resource", msg.Resource, "action", msg.Action)
-			for _, e := range msg.events() {
-				if dm, ok := e.(deviceMode); ok {
-					if c.loc.ID == "" || !slices.ContainsFunc(bases, func(b device) bool { return b.ID == dm.ID }) {
-						continue
-					}
-					e = ModeChanged{LocationID: c.loc.ID, LocationName: c.loc.Name, Mode: dm.Mode}
-				}
-				emit(e)
-			}
+			c.log.Debug("arlo: MQTT message", "topic", m.Topic, "events", len(es))
+			emitAll(es)
 		}
 	}
 }

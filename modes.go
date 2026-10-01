@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
-	"strings"
 )
 
 // Mode is a location's alarm mode. An active custom mode is reported as
@@ -42,36 +40,20 @@ func (c *Client) modeHeaders() map[string]string {
 	return map[string]string{"x-forwarded-user": c.sess.UserID, "x-user-device-id": c.sess.UserID}
 }
 
-// location returns the location holding the account's base stations. An
-// account can also see locations of its own with no device, and shared
-// locations name their gateways "<ownerId>_<deviceId>".
-//
-// ponytail: one location with bases only (ours); SetMode would need a
-// location argument for accounts with several.
-func (c *Client) location(ctx context.Context, bases []device) (location, error) {
+// locations fetches the account's own and shared locations.
+func (c *Client) locations(ctx context.Context) (own, shared []location, err error) {
 	data, err := c.apiCall(ctx, http.MethodGet, "/hmsdevicemanagement/users/"+c.sess.UserID+"/locations", nil, nil)
 	if err != nil {
-		return location{}, err
+		return nil, nil, err
 	}
 	var ls struct {
-		User   []location `json:"userLocations"`
+		Own    []location `json:"userLocations"`
 		Shared []location `json:"sharedLocations"`
 	}
 	if err := json.Unmarshal(data, &ls); err != nil {
-		return location{}, fmt.Errorf("locations: %w", err)
+		return nil, nil, fmt.Errorf("locations: %w", err)
 	}
-	var found []location
-	for _, l := range append(ls.User, ls.Shared...) {
-		if slices.ContainsFunc(l.Gateways, func(g string) bool {
-			return slices.ContainsFunc(bases, func(b device) bool { return g == b.ID || strings.HasSuffix(g, "_"+b.ID) })
-		}) {
-			found = append(found, l)
-		}
-	}
-	if len(found) != 1 {
-		return location{}, fmt.Errorf("locations: %d hold a base station, only one is supported", len(found))
-	}
-	return found[0], nil
+	return ls.Own, ls.Shared, nil
 }
 
 // activeMode reads a location's mode and the revision a change must quote.
@@ -109,16 +91,16 @@ func (c *Client) setMode(ctx context.Context, loc location, mode Mode) error {
 // ErrNotConnected is SetMode's error while Run is not connected to Arlo.
 var ErrNotConnected = errors.New("arlo: not connected")
 
-// command is work Run does on behalf of another goroutine, so that it uses
-// the session only Run's goroutine touches.
+// command is work Run does on behalf of another goroutine, so that only Run's
+// goroutine touches the session and the stream.
 type command struct {
-	fn   func(ctx context.Context, emit func(Event)) error
+	fn   func(ctx context.Context, st *stream, emit func(Event)) error
 	done chan error
 }
 
 // do hands fn to Run and waits for its result. It fails at once when Run is
 // not connected.
-func (c *Client) do(ctx context.Context, fn func(context.Context, func(Event)) error) error {
+func (c *Client) do(ctx context.Context, fn func(context.Context, *stream, func(Event)) error) error {
 	if !c.connected.Load() {
 		return ErrNotConnected
 	}
@@ -139,38 +121,40 @@ func (c *Client) do(ctx context.Context, fn func(context.Context, func(Event)) e
 // SetMode sets the mode of the account's location. It needs Run to be
 // connected, and reports the new mode as a ModeChanged event.
 func (c *Client) SetMode(ctx context.Context, mode Mode) error {
-	return c.do(ctx, func(ctx context.Context, emit func(Event)) error {
-		if err := c.resolveLocation(ctx); err != nil {
+	return c.do(ctx, func(ctx context.Context, st *stream, emit func(Event)) error {
+		if err := c.resolveLocation(ctx, st); err != nil {
 			return fmt.Errorf("arlo: set mode %s: %w", mode, err)
 		}
-		if err := c.setMode(ctx, c.loc, mode); err != nil {
+		if err := c.setMode(ctx, st.loc, mode); err != nil {
 			return fmt.Errorf("arlo: set mode %s: %w", mode, err)
 		}
-		emit(ModeChanged{LocationID: c.loc.ID, LocationName: c.loc.Name, Mode: mode})
+		emit(st.modeChanged(mode))
 		return nil
 	})
 }
 
-// resolveLocation finds the location once per session; a failure is
+// resolveLocation finds the location once per connection; a failure is
 // retried on the next call.
-func (c *Client) resolveLocation(ctx context.Context) error {
-	if c.loc.ID != "" {
+func (c *Client) resolveLocation(ctx context.Context, st *stream) error {
+	if st.loc.ID != "" {
 		return nil
 	}
-	loc, err := c.location(ctx, c.bases)
-	c.loc = loc
-	return err
+	own, shared, err := c.locations(ctx)
+	if err != nil {
+		return err
+	}
+	return st.located(own, shared)
 }
 
 // readMode reports the location's current mode.
-func (c *Client) readMode(ctx context.Context, emit func(Event)) error {
-	if err := c.resolveLocation(ctx); err != nil {
+func (c *Client) readMode(ctx context.Context, st *stream, emit func(Event)) error {
+	if err := c.resolveLocation(ctx, st); err != nil {
 		return fmt.Errorf("arlo: read mode: %w", err)
 	}
-	mode, _, err := c.activeMode(ctx, c.loc)
+	mode, _, err := c.activeMode(ctx, st.loc)
 	if err != nil {
 		return fmt.Errorf("arlo: read mode: %w", err)
 	}
-	emit(ModeChanged{LocationID: c.loc.ID, LocationName: c.loc.Name, Mode: mode})
+	emit(st.modeChanged(mode))
 	return nil
 }
