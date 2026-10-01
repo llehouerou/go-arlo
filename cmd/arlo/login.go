@@ -20,7 +20,7 @@ func clientFlags(fs *flag.FlagSet) func() (*arlo.Client, error) {
 	email := fs.String("email", "", "Arlo account email")
 	passwordFile := fs.String("password-file", "", "file holding the Arlo password")
 	sessionPath := fs.String("session", "arlo.session.json", "session file")
-	imapAddr := fs.String("imap-addr", "imap.example.com:993", "IMAPS server receiving Arlo's 2FA emails")
+	imapAddr := fs.String("imap-addr", "", "IMAPS server (host:port) receiving Arlo's 2FA emails")
 	imapUser := fs.String("imap-user", "", "IMAP login; empty to type the 2FA code instead")
 	imapPasswordFile := fs.String("imap-password-file", "", "file holding the IMAP password")
 	dump := fs.String("dump", "debug", "directory for redacted response dumps; empty to disable")
@@ -39,6 +39,9 @@ func clientFlags(fs *flag.FlagSet) func() (*arlo.Client, error) {
 		}
 		code := typedCode
 		if *imapUser != "" {
+			if *imapAddr == "" {
+				return nil, errors.New("-imap-user needs -imap-addr")
+			}
 			imapPassword, err := readSecret(*imapPasswordFile)
 			if err != nil {
 				return nil, err

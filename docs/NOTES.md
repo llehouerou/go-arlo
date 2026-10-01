@@ -26,7 +26,7 @@ Assistant; the library itself knows nothing of Oiko.
 | Session | JSON file at a caller-given path, 0600, atomic write: user device id, browser auth code, cookies, token, expiry |
 | API | `Client.Run(ctx, func(Event)) error` blocks and owns login, MQTT and reconnects; commands are methods (`SetMode`) on the session `Run` holds |
 | Events | concrete types: `Connection`, `Devices`, `DeviceState` (serial, connected, battery), `Motion`, `ModeChanged` |
-| the production host | session at `/var/lib/oiko/arlo-session.json`; secrets from sops-nix via systemd `LoadCredential` (done in Oiko/infrastructure, not here) |
+| Production host | session at `/var/lib/oiko/arlo-session.json`; secrets from sops-nix via systemd `LoadCredential` (done in Oiko/infrastructure, not here) |
 
 ## Arlo's auth rate limit
 
@@ -128,7 +128,7 @@ Each layer works end to end before the next, and leaves one runnable check.
 - HA's aarlo config entry is disabled (`disabled_by: user`) on the production host while this
   client owns the account; backup next to `core.config_entries`.
 
-## Events and devices results (2026-09-30, the production host)
+## Events and devices results (2026-09-30, production host)
 
 - `/v2/users/devices` lists the base, a pseudo `siren` device under the
   base's id, and the two cameras, with no `properties`: state only comes
@@ -143,10 +143,11 @@ Each layer works end to end before the next, and leaves one runnable check.
 - First readings: base connected, camera A 31 %, camera B 81 %.
 - Motion (armed camera A): `cameras/<id>` packets with `motionDetected`
   true then false ~6 s later, each sent twice by the base (distinct
-  transIds, likely once per subscribed client). Harmless for a state.
+  transIds: once per subscribed client, see "Repeated packets" below).
+  Harmless for a state.
   Motion packets also carry a `streamURL` with an ingress token: redacted.
 
-## Concurrent sessions (2026-09-30, the production host)
+## Concurrent sessions (2026-09-30, production host)
 
 With a `watch` running, none of these disturbed it: a second process
 reusing the token (REST), a second MQTT connection on the same token (both
@@ -154,7 +155,7 @@ received the motion events), a fresh `/api/auth` elsewhere (the old token
 kept working, no `logout`). Arlo tolerates concurrent sessions of this
 account; the `logout` pyaarlo warns about must come from something else.
 
-## Modes results (2026-09-30, the production host)
+## Modes results (2026-09-30, production host)
 
 - The account go-arlo uses is a **granted access** account. Its locations: an empty
   `Home` of its own (no gateway) and the owner's shared `Home`, whose
@@ -172,7 +173,7 @@ account; the `logout` pyaarlo warns about must come from something else.
   "armed all the time".
 - armHome then standby round trip done twice, location left in standby.
 
-## Token renewal and trust rotation (2026-09-30, the production host)
+## Token renewal and trust rotation (2026-09-30, production host)
 
 - The background `watch` renewed its token at 17:36:38 as planned (expiry
   minus 10 min) with no `Connection` flap, and got a fresh 2 h token.
@@ -185,6 +186,33 @@ account; the `logout` pyaarlo warns about must come from something else.
   `validateAccessToken`, so a failure there does not lose the new cookie.
 - Confirmed at 19:26: with a single owner, the renewal went through the
   trusted browser, no 2FA.
+
+## Repeated packets (2026-10-01, production host, Oiko with dumps on)
+
+- A base station sends each spontaneous packet (`cameras/<id>` with
+  `motionDetected`, and the property-only ones around it) **once per client
+  subscribed to it**. Motion with only Oiko subscribed: `true` ×1, `false`
+  ×1. Same motion with the Arlo app open on an Android phone: ×2 each.
+- The copies have distinct `transId`s and **no `to`** (null): nothing tells
+  them apart. Only answers to a request (`subscriptions/…/is`,
+  `devices/is`) carry `to`, set to the requester (`<userId>_web` for us).
+- Any account sharing the base counts. Copies of the 08:28 motion: `true`
+  ×3 (Oiko, the owner's Android app, and an Android app on go-arlo's account just
+  logged out), `false` ×2 twenty seconds later.
+- An app counts while open: it subscribes on opening, then every 20 s
+  (`subscriptions/<id>`, transIds `and!…`). A subscription outlives its last
+  renewal by about two minutes (the logged-out app, last renewed 08:26:17,
+  was gone between 08:28:15 and 08:28:31). Push notifications to a closed
+  app are not subscriptions.
+- Answers to the app's own requests also reach every subscriber, once per
+  subscriber, with the same `transId` (presumably `publishResponse: true`):
+  their multiplicity counts the live subscriptions. Answers to ours
+  (`publishResponse: false`) come once.
+- Hence events are states that may repeat; go-arlo passes the repeats on
+  and Oiko records an identical value as a refresh, not a change.
+- The Android app was first logged into this granted-access account (it
+  subscribes as `<userId>`, without `_web`), then into the owner's
+  (`<ownerId>`).
 
 ## Not yet ported from pyaarlo (roadmap, 2026-09-30)
 
