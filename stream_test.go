@@ -94,7 +94,7 @@ func TestStreamReceived(t *testing.T) {
 			"C2":{"properties":{"batteryLevel":45,"connectionState":"available","motionDetected":"False"},"states":{}},
 			"C1":{"properties":{"connectionState":"thermalShutdownCold"}},
 			"B":{"properties":{"connectivity":[{"connected":"True"}],"state":"idle"},"states":{}}}}`,
-			[]string{"state C1 connected=false battery=-", "state C2 connected=true battery=45"}},
+			[]string{"state C1 connected=false battery=-", "state C2 connected=true battery=45", "motion C2 false"}},
 		// Real VMB4000 packet after a SetMode, trimmed.
 		{"base mode change", true, modeChange, []string{"mode L1 Home armHome"}},
 		{"base mode change before the location is known", false, modeChange, nil},

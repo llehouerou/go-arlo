@@ -139,7 +139,8 @@ type DeviceState struct {
 	Battery   *int // percent
 }
 
-// Motion reports motion starting or stopping in front of a camera.
+// Motion reports whether a camera sees motion: on connection, then as it
+// starts or stops.
 type Motion struct {
 	ID     string
 	Active bool
@@ -172,13 +173,23 @@ type properties struct {
 	MotionDetected  *flexBool `json:"motionDetected"`
 }
 
-func (p properties) state(id string) (DeviceState, bool) {
+// events are what a device's properties report: its state, and whether it
+// sees motion. A base station's answer to "get devices" carries the same
+// properties as a camera's own packets, so motion is known from connection.
+func (p properties) events(id string) []Event {
+	var out []Event
 	s := DeviceState{ID: id, Battery: p.BatteryLevel}
 	if p.ConnectionState != nil {
 		up := *p.ConnectionState == "available"
 		s.Connected = &up
 	}
-	return s, s.Connected != nil || s.Battery != nil
+	if s.Connected != nil || s.Battery != nil {
+		out = append(out, s)
+	}
+	if p.MotionDetected != nil {
+		out = append(out, Motion{ID: id, Active: bool(*p.MotionDetected)})
+	}
+	return out
 }
 
 // packet is the part of an event stream message we read. properties and
@@ -208,9 +219,7 @@ func (m packet) events() []Event {
 			return nil
 		}
 		for _, id := range slices.Sorted(maps.Keys(devs)) {
-			if s, ok := devs[id].Properties.state(id); ok {
-				out = append(out, s)
-			}
+			out = append(out, devs[id].Properties.events(id)...)
 		}
 	case strings.HasPrefix(m.Resource, "cameras/"):
 		var p properties
@@ -218,12 +227,7 @@ func (m packet) events() []Event {
 			return nil
 		}
 		id, _, _ := strings.Cut(strings.TrimPrefix(m.Resource, "cameras/"), "/")
-		if s, ok := p.state(id); ok {
-			out = append(out, s)
-		}
-		if p.MotionDetected != nil {
-			out = append(out, Motion{ID: id, Active: bool(*p.MotionDetected)})
-		}
+		out = p.events(id)
 	case strings.HasPrefix(m.Resource, "devices/") && strings.HasSuffix(m.Resource, "/states"):
 		var s struct {
 			ActiveMode Mode `json:"activeMode"`
