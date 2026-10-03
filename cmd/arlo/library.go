@@ -22,7 +22,7 @@ func library(ctx context.Context, args []string) error {
 		return err
 	}
 	names := map[string]string{}
-	return connected(ctx, cfg, func(e arlo.Event) {
+	return withRun(ctx, cfg, func(e arlo.Event) {
 		if ds, ok := e.(arlo.Devices); ok {
 			for _, d := range ds {
 				names[d.ID] = d.Name
@@ -30,7 +30,9 @@ func library(ctx context.Context, args []string) error {
 		}
 	}, func(ctx context.Context, c *arlo.Client) error {
 		now := time.Now()
-		rs, err := c.Library(ctx, now.AddDate(0, 0, 1-*days), now)
+		lctx, stop := soon(ctx)
+		defer stop()
+		rs, err := c.Library(lctx, now.AddDate(0, 0, 1-*days), now)
 		if err != nil {
 			return err
 		}
@@ -46,33 +48,21 @@ func library(ctx context.Context, args []string) error {
 	})
 }
 
-// connected runs a client with handle until it is connected, then runs fn
-// and stops the client.
-func connected(ctx context.Context, cfg arlo.Config, handle func(arlo.Event), fn func(context.Context, *arlo.Client) error) error {
+// withRun runs a client with handle, then fn, then stops the client. fn's
+// library calls wait for Run's connection: bound each with soon.
+func withRun(ctx context.Context, cfg arlo.Config, handle func(arlo.Event), fn func(context.Context, *arlo.Client) error) error {
 	c := arlo.New(cfg)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	up := make(chan struct{}, 1)
 	done := make(chan error, 1)
-	go func() {
-		done <- c.Run(ctx, func(e arlo.Event) {
-			handle(e)
-			if cn, ok := e.(arlo.Connection); ok && cn.Up {
-				select {
-				case up <- struct{}{}:
-				default:
-				}
-			}
-		})
-	}()
-	select {
-	case <-up:
-	case err := <-done:
-		return err
-	case <-time.After(time.Minute):
+	go func() { done <- c.Run(ctx, handle) }()
+	err := fn(ctx, c)
+	switch {
+	case errors.Is(err, arlo.ErrNotRunning):
+		return <-done
+	case errors.Is(err, context.DeadlineExceeded):
 		return errors.New("not connected within a minute; see the logs")
-	}
-	if err := fn(ctx, c); err != nil {
+	case err != nil:
 		return err
 	}
 	cancel()
@@ -80,4 +70,9 @@ func connected(ctx context.Context, cfg arlo.Config, handle func(arlo.Event), fn
 		return err
 	}
 	return nil
+}
+
+// soon bounds a library call, which waits for Run's connection.
+func soon(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, time.Minute)
 }

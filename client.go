@@ -41,13 +41,14 @@ type Client struct {
 	log *slog.Logger
 
 	// Only Run's goroutine touches api: Run refuses to run twice at once,
-	// and every other public method hands its work to Run through do.
+	// and every other public method hands its work to a connected Run
+	// through do.
 	api  *api
 	dial dialFunc
 
-	cmds      chan command
-	running   atomic.Bool
-	connected atomic.Bool
+	cmds    chan command
+	running atomic.Bool
+	runDone atomic.Pointer[chan struct{}] // closed when the last Run returns
 }
 
 // New returns a client. It does not touch the network: see Run.

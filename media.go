@@ -19,7 +19,7 @@ func (SnapshotReady) isEvent() {}
 
 // Snapshot asks a camera for a full-frame snapshot, reported as
 // SnapshotReady some seconds later. It wakes the camera, so it costs
-// battery. It needs Run to be connected.
+// battery. It waits for Run's connection.
 func (c *Client) Snapshot(ctx context.Context, cameraID string) error {
 	return c.do(ctx, "snapshot", func(ctx context.Context, st *stream, _ func(Event)) error {
 		base, err := st.baseOf(cameraID)
@@ -38,7 +38,7 @@ func (c *Client) Snapshot(ctx context.Context, cameraID string) error {
 
 // Stream starts a camera's live stream and returns its RTSPS URL. Arlo
 // stops the stream when nothing reads it for about 30 seconds. It wakes the
-// camera, so it costs battery. It needs Run to be connected.
+// camera, so it costs battery. It waits for Run's connection.
 func (c *Client) Stream(ctx context.Context, cameraID string) (string, error) {
 	var u string
 	err := c.do(ctx, "stream", func(ctx context.Context, st *stream, _ func(Event)) error {
@@ -99,7 +99,7 @@ type LastImages struct {
 }
 
 // LastImages reads a camera's latest pictures from the device list. It
-// needs Run to be connected.
+// waits for Run's connection.
 func (c *Client) LastImages(ctx context.Context, cameraID string) (LastImages, error) {
 	var li LastImages
 	err := c.do(ctx, "last images", func(ctx context.Context, _ *stream, _ func(Event)) error {

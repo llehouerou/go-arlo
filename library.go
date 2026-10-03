@@ -60,7 +60,7 @@ func (a *api) library(ctx context.Context, from, to time.Time) ([]Recording, err
 }
 
 // Library lists the recordings of the days from to to, as Arlo orders them.
-// It needs Run to be connected.
+// It waits for Run's connection.
 func (c *Client) Library(ctx context.Context, from, to time.Time) ([]Recording, error) {
 	var rs []Recording
 	err := c.do(ctx, "library", func(ctx context.Context, _ *stream, _ func(Event)) error {

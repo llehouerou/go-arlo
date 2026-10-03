@@ -34,8 +34,10 @@ func snapshot(ctx context.Context, args []string) error {
 			}
 		}
 	}
-	return connected(ctx, cfg, show, func(ctx context.Context, c *arlo.Client) error {
-		if err := c.Snapshot(ctx, camera); err != nil {
+	return withRun(ctx, cfg, show, func(ctx context.Context, c *arlo.Client) error {
+		sctx, stop := soon(ctx)
+		defer stop()
+		if err := c.Snapshot(sctx, camera); err != nil {
 			return err
 		}
 		fmt.Println(time.Now().Format(time.TimeOnly), "snapshot requested")

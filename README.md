@@ -35,7 +35,7 @@ go func() {
 	// err: ctx ended, or a failure retrying cannot fix
 }()
 
-err := c.SetMode(ctx, arlo.ArmHome) // arlo.ErrNotConnected while Run is not connected
+err := c.SetMode(ctx, arlo.ArmHome) // waits for Run's connection; arlo.ErrNotRunning without Run
 rs, err := c.Library(ctx, from, to) // recordings of these days, with presigned URLs
 err := c.Snapshot(ctx, cameraID)    // SnapshotReady follows within seconds; wakes the camera
 u, err := c.Stream(ctx, cameraID)   // rtsps:// URL; read it within ~30 s, skipping TLS verification
@@ -46,8 +46,11 @@ li, err := c.LastImages(ctx, cameraID) // latest picture and snapshot URLs, with
 stations every minute, asks them for their devices' state every ten minutes,
 renews the two-hour token before it expires, and reconnects with a backoff.
 The handler is called from `Run`'s goroutine, one event at a time.
-`SetMode` executes on that same goroutine. A second `Run` of the same client
-returns `arlo.ErrAlreadyRunning`.
+Commands (`SetMode`, `Library`, …) execute on that same goroutine once `Run`
+is connected: they wait through reconnections, so bound them with `ctx`, as
+`Run` may be in a backoff of up to an hour. They return `arlo.ErrNotRunning`
+when `Run` is not running or stops meanwhile. A second `Run` of the same
+client returns `arlo.ErrAlreadyRunning`.
 
 `arlo.Login(ctx, cfg)` logs in once and saves the session, to get through
 the first email two-factor ahead of `Run`. Never alongside a `Run` on the

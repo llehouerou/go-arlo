@@ -28,8 +28,10 @@ func lastImage(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return connected(ctx, cfg, func(arlo.Event) {}, func(ctx context.Context, c *arlo.Client) error {
-		li, err := c.LastImages(ctx, camera)
+	return withRun(ctx, cfg, func(arlo.Event) {}, func(ctx context.Context, c *arlo.Client) error {
+		lctx, stop := soon(ctx)
+		defer stop()
+		li, err := c.LastImages(lctx, camera)
 		if err != nil {
 			return err
 		}

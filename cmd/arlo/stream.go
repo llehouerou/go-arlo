@@ -31,8 +31,10 @@ func stream(ctx context.Context, args []string) error {
 		return err
 	}
 	show := func(e arlo.Event) { fmt.Println(time.Now().Format(time.TimeOnly), describe(e)) }
-	return connected(ctx, cfg, show, func(ctx context.Context, c *arlo.Client) error {
-		u, err := c.Stream(ctx, camera)
+	return withRun(ctx, cfg, show, func(ctx context.Context, c *arlo.Client) error {
+		sctx, stop := soon(ctx)
+		defer stop()
+		u, err := c.Stream(sctx, camera)
 		if err != nil {
 			return err
 		}

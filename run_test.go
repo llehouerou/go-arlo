@@ -35,6 +35,7 @@ type testRun struct {
 	events []string
 	done   chan struct{}
 	err    error // Run's, once done is closed
+	cancel context.CancelFunc
 }
 
 // startRun starts Run on a fresh Session against fake, over an in-memory
@@ -51,7 +52,8 @@ func startRun(t *testing.T, fake *fakeArlo, code CodeFunc) *testRun {
 	a := newAPI(cfg, "http://arlo.test", "http://arlo.test")
 	a.http.SetDial(l.dial)
 	r := &testRun{t: t, c: newClient(a, fake.dial), done: make(chan struct{})}
-	ctx, cancel := context.WithCancel(t.Context())
+	var ctx context.Context
+	ctx, r.cancel = context.WithCancel(t.Context())
 	go func() {
 		r.err = r.c.Run(ctx, func(e Event) {
 			r.mu.Lock()
@@ -61,11 +63,16 @@ func startRun(t *testing.T, fake *fakeArlo, code CodeFunc) *testRun {
 		close(r.done)
 	}()
 	t.Cleanup(func() {
-		cancel()
-		<-r.done
+		r.stop()
 		_ = srv.Close()
 	})
 	return r
+}
+
+// stop ends Run and waits for it.
+func (r *testRun) stop() {
+	r.cancel()
+	<-r.done
 }
 
 func withCode(context.Context, time.Time) (string, error) { return "123456", nil }
@@ -243,12 +250,41 @@ func TestRunCommands(t *testing.T) {
 			t.Errorf("last images %+v, %v", li, err)
 		}
 
+		// Commands wait through a reconnection.
 		fake.drop()
 		r.expect("drop", "down")
-		if err := r.c.SetMode(ctx, Standby); err != ErrNotConnected {
-			t.Errorf("set mode while down: %v", err)
+		cmd := make(chan error, 1)
+		go func() { cmd <- r.c.SetMode(ctx, Standby) }()
+		synctest.Wait()
+		select {
+		case err := <-cmd:
+			t.Fatalf("set mode while down: %v", err)
+		default:
+		}
+		time.Sleep(time.Minute)
+		if err := <-cmd; err != nil {
+			t.Fatalf("set mode after reconnecting: %v", err)
+		}
+		if es := r.take(); !slices.Contains(es, "up") || !slices.Contains(es, "mode L1 Home standby") {
+			t.Errorf("reconnect and set mode: %q", es)
+		}
+
+		// A waiting command ends with Run.
+		fake.drop()
+		r.expect("drop again", "down")
+		go func() { cmd <- r.c.Snapshot(ctx, "C1") }()
+		synctest.Wait()
+		r.stop()
+		if err := <-cmd; err != ErrNotRunning {
+			t.Errorf("snapshot after Run stopped: %v", err)
 		}
 	})
+}
+
+func TestCommandsNeedRun(t *testing.T) {
+	if err := New(Config{}).SetMode(t.Context(), ArmHome); err != ErrNotRunning {
+		t.Errorf("set mode without Run: %v", err)
+	}
 }
 
 func TestRunAlreadyRunning(t *testing.T) {

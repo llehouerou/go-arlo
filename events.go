@@ -36,6 +36,9 @@ func (c *Client) Run(ctx context.Context, handle func(Event)) error {
 		return ErrAlreadyRunning
 	}
 	defer c.running.Store(false)
+	runDone := make(chan struct{})
+	c.runDone.Store(&runDone)
+	defer close(runDone)
 	up := false
 	emit := func(e Event) {
 		if cn, ok := e.(Connection); ok {
@@ -111,8 +114,6 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 	c.log.Info("arlo: event stream up", "topics", len(st.topics), "bases", len(st.bases), "renew_in", renewIn.Round(time.Second))
 	emit(st.devices)
 	emit(Connection{Up: true})
-	c.connected.Store(true)
-	defer c.connected.Store(false)
 
 	// A base is connected while it answers pings; pyaarlo pings every
 	// minute.

@@ -88,8 +88,9 @@ func (a *api) setMode(ctx context.Context, loc location, mode Mode) error {
 	return err
 }
 
-// ErrNotConnected is SetMode's error while Run is not connected to Arlo.
-var ErrNotConnected = errors.New("arlo: not connected")
+// ErrNotRunning is a command's error when Run is not running, or stops
+// while the command waits for its connection.
+var ErrNotRunning = errors.New("arlo: Run not running")
 
 // command is work Run does on behalf of another goroutine, so that only Run's
 // goroutine touches the session and the stream.
@@ -98,15 +99,19 @@ type command struct {
 	done chan error
 }
 
-// do hands fn to Run and waits for its result, naming fn's errors after the
-// command. It fails at once with ErrNotConnected when Run is not connected.
+// do hands fn to Run once it is connected and waits for its result, naming
+// fn's errors after the command. ctx bounds the whole wait: Run may be in a
+// backoff of up to an hour.
 func (c *Client) do(ctx context.Context, name string, fn func(context.Context, *stream, func(Event)) error) error {
-	if !c.connected.Load() {
-		return ErrNotConnected
+	runDone := c.runDone.Load()
+	if runDone == nil {
+		return ErrNotRunning
 	}
 	cmd := command{fn: fn, done: make(chan error, 1)}
 	select {
-	case c.cmds <- cmd:
+	case c.cmds <- cmd: // only a connected Run receives
+	case <-*runDone:
+		return ErrNotRunning
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -121,8 +126,8 @@ func (c *Client) do(ctx context.Context, name string, fn func(context.Context, *
 	}
 }
 
-// SetMode sets the mode of the account's location. It needs Run to be
-// connected, and reports the new mode as a ModeChanged event.
+// SetMode sets the mode of the account's location, once Run is connected,
+// and reports the new mode as a ModeChanged event.
 func (c *Client) SetMode(ctx context.Context, mode Mode) error {
 	return c.do(ctx, "set mode "+string(mode), func(ctx context.Context, st *stream, emit func(Event)) error {
 		if err := c.resolveLocation(ctx, st); err != nil {
