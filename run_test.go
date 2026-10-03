@@ -222,8 +222,8 @@ func TestRunCommands(t *testing.T) {
 			t.Fatal(err)
 		}
 		r.expect("snapshot", "snapshot C1 https://snap/C1-new")
-		if err := r.c.Snapshot(ctx, "B"); err == nil {
-			t.Error("snapshot of a base station")
+		if err := r.c.Snapshot(ctx, "B"); err == nil || err.Error() != "arlo: snapshot: no camera B" {
+			t.Errorf("snapshot of a base station: %v", err)
 		}
 
 		u, err := r.c.Stream(ctx, "C1")
@@ -245,7 +245,7 @@ func TestRunCommands(t *testing.T) {
 
 		fake.drop()
 		r.expect("drop", "down")
-		if err := r.c.SetMode(ctx, Standby); !errors.Is(err, ErrNotConnected) {
+		if err := r.c.SetMode(ctx, Standby); err != ErrNotConnected {
 			t.Errorf("set mode while down: %v", err)
 		}
 	})

@@ -63,13 +63,10 @@ func (a *api) library(ctx context.Context, from, to time.Time) ([]Recording, err
 // It needs Run to be connected.
 func (c *Client) Library(ctx context.Context, from, to time.Time) ([]Recording, error) {
 	var rs []Recording
-	err := c.do(ctx, func(ctx context.Context, _ *stream, _ func(Event)) error {
+	err := c.do(ctx, "library", func(ctx context.Context, _ *stream, _ func(Event)) error {
 		var err error
 		rs, err = c.api.library(ctx, from, to)
 		return err
 	})
-	if err != nil {
-		return nil, fmt.Errorf("arlo: library: %w", err)
-	}
-	return rs, nil
+	return rs, err
 }

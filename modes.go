@@ -98,9 +98,9 @@ type command struct {
 	done chan error
 }
 
-// do hands fn to Run and waits for its result. It fails at once when Run is
-// not connected.
-func (c *Client) do(ctx context.Context, fn func(context.Context, *stream, func(Event)) error) error {
+// do hands fn to Run and waits for its result, naming fn's errors after the
+// command. It fails at once with ErrNotConnected when Run is not connected.
+func (c *Client) do(ctx context.Context, name string, fn func(context.Context, *stream, func(Event)) error) error {
 	if !c.connected.Load() {
 		return ErrNotConnected
 	}
@@ -112,7 +112,10 @@ func (c *Client) do(ctx context.Context, fn func(context.Context, *stream, func(
 	}
 	select {
 	case err := <-cmd.done:
-		return err
+		if err != nil {
+			return fmt.Errorf("arlo: %s: %w", name, err)
+		}
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -121,12 +124,12 @@ func (c *Client) do(ctx context.Context, fn func(context.Context, *stream, func(
 // SetMode sets the mode of the account's location. It needs Run to be
 // connected, and reports the new mode as a ModeChanged event.
 func (c *Client) SetMode(ctx context.Context, mode Mode) error {
-	return c.do(ctx, func(ctx context.Context, st *stream, emit func(Event)) error {
+	return c.do(ctx, "set mode "+string(mode), func(ctx context.Context, st *stream, emit func(Event)) error {
 		if err := c.resolveLocation(ctx, st); err != nil {
-			return fmt.Errorf("arlo: set mode %s: %w", mode, err)
+			return err
 		}
 		if err := c.api.setMode(ctx, st.loc, mode); err != nil {
-			return fmt.Errorf("arlo: set mode %s: %w", mode, err)
+			return err
 		}
 		emit(st.modeChanged(mode))
 		return nil

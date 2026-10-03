@@ -21,7 +21,7 @@ func (SnapshotReady) isEvent() {}
 // SnapshotReady some seconds later. It wakes the camera, so it costs
 // battery. It needs Run to be connected.
 func (c *Client) Snapshot(ctx context.Context, cameraID string) error {
-	err := c.do(ctx, func(ctx context.Context, st *stream, _ func(Event)) error {
+	return c.do(ctx, "snapshot", func(ctx context.Context, st *stream, _ func(Event)) error {
 		base, err := st.baseOf(cameraID)
 		if err != nil {
 			return err
@@ -34,10 +34,6 @@ func (c *Client) Snapshot(ctx context.Context, cameraID string) error {
 		})
 		return err
 	})
-	if err != nil {
-		return fmt.Errorf("arlo: snapshot: %w", err)
-	}
-	return nil
 }
 
 // Stream starts a camera's live stream and returns its RTSPS URL. Arlo
@@ -45,7 +41,7 @@ func (c *Client) Snapshot(ctx context.Context, cameraID string) error {
 // camera, so it costs battery. It needs Run to be connected.
 func (c *Client) Stream(ctx context.Context, cameraID string) (string, error) {
 	var u string
-	err := c.do(ctx, func(ctx context.Context, st *stream, _ func(Event)) error {
+	err := c.do(ctx, "stream", func(ctx context.Context, st *stream, _ func(Event)) error {
 		base, err := st.baseOf(cameraID)
 		if err != nil {
 			return err
@@ -63,10 +59,7 @@ func (c *Client) Stream(ctx context.Context, cameraID string) (string, error) {
 		u, err = streamURL(data)
 		return err
 	})
-	if err != nil {
-		return "", fmt.Errorf("arlo: stream: %w", err)
-	}
-	return u, nil
+	return u, err
 }
 
 // streamURL reads startStream's answer. Arlo names the RTSPS stream
@@ -82,6 +75,9 @@ func streamURL(data []byte) (string, error) {
 }
 
 // baseOf returns the base station a camera pairs with.
+//
+// ponytail: Snapshot and Stream each build their set cameras/<id> message;
+// one camera relay (baseOf + message + relay) when camera on/off makes three.
 func (s *stream) baseOf(cameraID string) (device, error) {
 	i := slices.IndexFunc(s.devices, func(d Device) bool { return d.ID == cameraID && d.Type == "camera" })
 	if i < 0 {
@@ -106,7 +102,7 @@ type LastImages struct {
 // needs Run to be connected.
 func (c *Client) LastImages(ctx context.Context, cameraID string) (LastImages, error) {
 	var li LastImages
-	err := c.do(ctx, func(ctx context.Context, _ *stream, _ func(Event)) error {
+	err := c.do(ctx, "last images", func(ctx context.Context, _ *stream, _ func(Event)) error {
 		devs, err := c.api.devices(ctx)
 		if err != nil {
 			return err
@@ -118,8 +114,5 @@ func (c *Client) LastImages(ctx context.Context, cameraID string) (LastImages, e
 		li = LastImages{Image: devs[i].LastImageURL, Snapshot: devs[i].SnapshotURL}
 		return nil
 	})
-	if err != nil {
-		return LastImages{}, fmt.Errorf("arlo: last images: %w", err)
-	}
-	return li, nil
+	return li, err
 }
