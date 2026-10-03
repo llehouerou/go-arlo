@@ -31,42 +31,46 @@ var (
 // while a Client's Run uses the same SessionPath: each authentication
 // rotates the trust cookie, and the loser's copy costs a new two-factor.
 func Login(ctx context.Context, cfg Config) error {
-	return New(cfg).login(ctx)
+	_, err := newAPI(cfg, defaultAuthHost, defaultAPIHost).login(ctx)
+	return err
 }
 
-// login opens a session. It reuses the saved token while Arlo accepts it and
-// it is not about to expire; otherwise it authenticates once, with
+// streamAccess is what connecting to the Event stream takes once logged in.
+type streamAccess struct {
+	url, userID, token string
+	expires            time.Time // the token's
+}
+
+// login opens the Session. It reuses the saved token while Arlo accepts it
+// and it is not about to expire; otherwise it authenticates once, with
 // two-factor by email until Arlo trusts this client as a browser. Arlo rate
 // limits auth attempts with a long cooldown, so login never retries.
-func (c *Client) login(ctx context.Context) error {
-	a := c.api
+func (a *api) login(ctx context.Context) (streamAccess, error) {
 	if err := a.load(); err != nil {
-		return fmt.Errorf("arlo: read session: %w", err)
+		return streamAccess{}, fmt.Errorf("arlo: read session: %w", err)
 	}
 	if a.sess.DeviceID == "" {
 		a.sess.DeviceID = uuid.NewV4().String()
 	}
 
-	if a.sess.Token != "" && time.Until(a.expires()) > renewBefore {
+	if expires := time.Unix(a.sess.Expires, 0); a.sess.Token != "" && time.Until(expires) > renewBefore {
 		err := a.validate(ctx)
 		var refused *apiError
 		switch {
 		case err == nil:
-			c.log.Info("arlo: saved token still valid", "expires", a.expires())
+			a.log.Info("arlo: saved token still valid", "expires", expires)
 			return a.startSession(ctx)
 		case !errors.As(err, &refused):
-			return fmt.Errorf("arlo: validate saved token: %w", err)
+			return streamAccess{}, fmt.Errorf("arlo: validate saved token: %w", err)
 		}
-		c.log.Info("arlo: saved token refused, authenticating", "err", err)
+		a.log.Info("arlo: saved token refused, authenticating", "err", err)
 	}
 
-	if err := c.authenticate(ctx); err != nil {
-		return fmt.Errorf("arlo: %w", err)
+	if err := a.authenticate(ctx); err != nil {
+		return streamAccess{}, fmt.Errorf("arlo: %w", err)
 	}
 	return a.startSession(ctx)
 }
-
-func (a *api) expires() time.Time { return time.Unix(a.sess.Expires, 0) }
 
 // authData is the token part of /api/auth, startAuth and finishAuth answers.
 // The last two nest it under accessToken.
@@ -100,12 +104,11 @@ func (a *api) setAuth(data json.RawMessage) (authData, error) {
 
 // authenticate follows pyaarlo's ArloBackEnd._auth, _validate and
 // _pair_auth_code.
-func (c *Client) authenticate(ctx context.Context) error {
-	a := c.api
+func (a *api) authenticate(ctx context.Context) error {
 	a.preflight(ctx, "/api/auth")
 	data, err := a.authCall(ctx, http.MethodPost, "/api/auth", false, map[string]any{
-		"email":     c.cfg.Email,
-		"password":  base64.StdEncoding.EncodeToString([]byte(c.cfg.Password)),
+		"email":     a.email,
+		"password":  base64.StdEncoding.EncodeToString([]byte(a.password)),
 		"language":  "en",
 		"EnvSource": "prod",
 	})
@@ -123,7 +126,7 @@ func (c *Client) authenticate(ctx context.Context) error {
 
 	paired := false
 	if !auth.AuthCompleted {
-		if paired, err = c.secondFactor(ctx); err != nil {
+		if paired, err = a.secondFactor(ctx); err != nil {
 			return err
 		}
 	}
@@ -147,7 +150,7 @@ func (c *Client) authenticate(ctx context.Context) error {
 	}); err != nil {
 		return fmt.Errorf("pair browser: %w", err)
 	}
-	c.log.Info("arlo: browser paired, next logins skip 2FA")
+	a.log.Info("arlo: browser paired, next logins skip 2FA")
 	if err := a.save(); err != nil {
 		return fmt.Errorf("write session: %w", err)
 	}
@@ -157,8 +160,7 @@ func (c *Client) authenticate(ctx context.Context) error {
 // secondFactor completes an auth Arlo left incomplete. A trusted browser
 // needs no code; otherwise the code is emailed and the browser gets paired
 // afterwards, which it reports.
-func (c *Client) secondFactor(ctx context.Context) (paired bool, err error) {
-	a := c.api
+func (a *api) secondFactor(ctx context.Context) (paired bool, err error) {
 	a.preflight(ctx, "/api/getFactorId")
 	data, err := a.authCall(ctx, http.MethodPost, "/api/getFactorId", true, map[string]any{
 		"factorType": "BROWSER",
@@ -176,7 +178,7 @@ func (c *Client) secondFactor(ctx context.Context) (paired bool, err error) {
 		if err := json.Unmarshal(data, &f); err != nil {
 			return false, fmt.Errorf("/api/getFactorId: %w", err)
 		}
-		c.log.Info("arlo: trusted browser, no 2FA")
+		a.log.Info("arlo: trusted browser, no 2FA")
 		a.preflight(ctx, "/api/startAuth")
 		data, err := a.authCall(ctx, http.MethodPost, "/api/startAuth", true, map[string]any{
 			"factorId":   f.FactorID,
@@ -190,7 +192,7 @@ func (c *Client) secondFactor(ctx context.Context) (paired bool, err error) {
 		return false, err
 	}
 
-	if c.cfg.Code == nil {
+	if a.code == nil {
 		return false, errNeedsCode
 	}
 	data, err = a.authCall(ctx, http.MethodGet,
@@ -218,7 +220,7 @@ func (c *Client) secondFactor(ctx context.Context) (paired bool, err error) {
 		return false, errors.New("2FA needed but the account has no email factor")
 	}
 
-	c.log.Info("arlo: 2FA by email")
+	a.log.Info("arlo: 2FA by email")
 	since := time.Now()
 	a.preflight(ctx, "/api/startAuth")
 	// pyaarlo sends factorType BROWSER here too, with the email factor's id.
@@ -236,7 +238,7 @@ func (c *Client) secondFactor(ctx context.Context) (paired bool, err error) {
 	if err := json.Unmarshal(data, &start); err != nil || start.FactorAuthCode == "" {
 		return false, errors.New("/api/startAuth: no factorAuthCode")
 	}
-	code, err := c.cfg.Code(ctx, since)
+	code, err := a.code(ctx, since)
 	if err != nil {
 		return false, fmt.Errorf("2FA code: %w", err)
 	}
@@ -259,18 +261,17 @@ func (a *api) validate(ctx context.Context) error {
 }
 
 // startSession fetches the session details the event stream needs.
-func (a *api) startSession(ctx context.Context) error {
+func (a *api) startSession(ctx context.Context) (streamAccess, error) {
 	data, err := a.apiCall(ctx, http.MethodGet, "/hmsweb/users/session/v3", nil, nil)
 	if err != nil {
-		return fmt.Errorf("arlo: start session: %w", err)
+		return streamAccess{}, fmt.Errorf("arlo: start session: %w", err)
 	}
 	var s struct {
 		MQTTURL string `json:"mqttUrl"`
 	}
 	if err := json.Unmarshal(data, &s); err != nil {
-		return fmt.Errorf("arlo: start session: %w", err)
+		return streamAccess{}, fmt.Errorf("arlo: start session: %w", err)
 	}
-	a.mqttURL = s.MQTTURL
 	a.log.Info("arlo: session started", "mqttUrl", s.MQTTURL)
-	return nil
+	return streamAccess{url: s.MQTTURL, userID: a.sess.UserID, token: a.sess.Token, expires: time.Unix(a.sess.Expires, 0)}, nil
 }

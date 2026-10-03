@@ -50,7 +50,7 @@ func startRun(t *testing.T, fake *fakeArlo, code CodeFunc) *testRun {
 	}
 	a := newAPI(cfg, "http://arlo.test", "http://arlo.test")
 	a.http.SetDial(l.dial)
-	r := &testRun{t: t, c: newClient(cfg, a, fake.dial), done: make(chan struct{})}
+	r := &testRun{t: t, c: newClient(a, fake.dial), done: make(chan struct{})}
 	ctx, cancel := context.WithCancel(t.Context())
 	go func() {
 		r.err = r.c.Run(ctx, func(e Event) {

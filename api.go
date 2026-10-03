@@ -20,10 +20,13 @@ import (
 	"github.com/imroc/req/v3"
 )
 
-// api talks to Arlo's two hosts as one account: it holds the Session and
-// adds the headers, envelopes and redacted dumps every call needs. Once Run
-// has started, only its goroutine touches it.
+// api talks to Arlo's two hosts as one account: it holds the Session, opens
+// it (login.go) and adds the headers, envelopes and redacted dumps every
+// call needs. Once Run has started, only its goroutine touches it.
 type api struct {
+	email       string
+	password    string
+	code        CodeFunc
 	sessionPath string
 	dumpDir     string
 	log         *slog.Logger
@@ -33,7 +36,6 @@ type api struct {
 	apiHost     string
 	dumps       int
 	sess        session
-	mqttURL     string // from the last startSession
 }
 
 // newAPI returns an api for the hosts at these base URLs. It does not touch
@@ -41,6 +43,9 @@ type api struct {
 func newAPI(cfg Config, authHost, apiHost string) *api {
 	jar, _ := cookiejar.New(nil) // never fails with nil options
 	return &api{
+		email:       cfg.Email,
+		password:    cfg.Password,
+		code:        cfg.Code,
 		sessionPath: cfg.SessionPath,
 		dumpDir:     cfg.DumpDir,
 		log:         cmp.Or(cfg.Log, slog.Default()),

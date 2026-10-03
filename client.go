@@ -38,7 +38,6 @@ type Config struct {
 
 // Client talks to Arlo on behalf of one account.
 type Client struct {
-	cfg Config
 	log *slog.Logger
 
 	// Only Run's goroutine touches api: Run refuses to run twice at once,
@@ -54,9 +53,9 @@ type Client struct {
 // New returns a client. It does not touch the network: see Run.
 func New(cfg Config) *Client {
 	a := newAPI(cfg, defaultAuthHost, defaultAPIHost)
-	return newClient(cfg, a, mqttDialer(a.log))
+	return newClient(a, mqttDialer(a.log))
 }
 
-func newClient(cfg Config, a *api, dial dialFunc) *Client {
-	return &Client{cfg: cfg, log: a.log, api: a, dial: dial, cmds: make(chan command)}
+func newClient(a *api, dial dialFunc) *Client {
+	return &Client{log: a.log, api: a, dial: dial, cmds: make(chan command)}
 }

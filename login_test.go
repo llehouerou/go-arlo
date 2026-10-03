@@ -22,12 +22,12 @@ func TestLogin(t *testing.T) {
 			Email: "me@example.com", Password: "secret", SessionPath: path,
 			Code: func(context.Context, time.Time) (string, error) { codes++; return "123456", nil },
 		}
-		c := newClient(cfg, newAPI(cfg, srv.URL, srv.URL), nil)
-		if err := c.login(t.Context()); err != nil {
+		acc, err := newAPI(cfg, srv.URL, srv.URL).login(t.Context())
+		if err != nil {
 			return err
 		}
-		if c.api.mqttURL != "ssl://mqtt.example:8883" {
-			t.Errorf("mqttUrl %q", c.api.mqttURL)
+		if acc.url != fakeMQTTURL || acc.userID != "U1" || acc.token != fake.issued || acc.expires.Before(time.Now()) {
+			t.Errorf("access %+v", acc)
 		}
 		return nil
 	}

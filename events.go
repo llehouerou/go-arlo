@@ -82,18 +82,19 @@ func (c *Client) Run(ctx context.Context, handle func(Event)) error {
 // follow runs one session: login, MQTT, base pings, until the connection
 // drops or the token is due for renewal.
 func (c *Client) follow(ctx context.Context, emit func(Event)) error {
-	if err := c.login(ctx); err != nil {
+	acc, err := c.api.login(ctx)
+	if err != nil {
 		return err
 	}
-	renewIn := time.Until(c.api.expires()) - renewBefore
+	renewIn := time.Until(acc.expires) - renewBefore
 	if renewIn <= 0 {
-		return fmt.Errorf("arlo: token expires at %v, too soon to use", c.api.expires())
+		return fmt.Errorf("arlo: token expires at %v, too soon to use", acc.expires)
 	}
 	devs, err := c.api.devices(ctx)
 	if err != nil {
 		return fmt.Errorf("arlo: %w", err)
 	}
-	st := newStream(c.api.sess.UserID, devs)
+	st := newStream(acc.userID, devs)
 	emitAll := func(es []Event) {
 		for _, e := range es {
 			emit(e)
@@ -102,7 +103,7 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	conn, err := c.dial(ctx, c.api.mqttURL, c.api.sess.UserID, c.api.sess.Token, st.topics)
+	conn, err := c.dial(ctx, acc.url, acc.userID, acc.token, st.topics)
 	if err != nil {
 		return fmt.Errorf("arlo: MQTT: %w", err)
 	}
