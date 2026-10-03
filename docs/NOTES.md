@@ -10,8 +10,10 @@ Assistant; the library itself knows nothing of Oiko.
 - Per camera: connected, battery level. Integration reachability.
 - Location mode: read, set `armHome` / `standby` (`armAway` for free).
 - Nice to have: motion per camera.
-- Out: video, streams, snapshots, library, sirens, base station modes, custom
-  (UUID) location modes — an active custom mode is reported raw.
+- Media: recordings library, latest pictures, snapshot on demand, live
+  stream URL.
+- Out: sirens, base station modes, custom (UUID) location modes — an active
+  custom mode is reported raw.
 
 ## Decisions
 
@@ -214,6 +216,77 @@ account; the `logout` pyaarlo warns about must come from something else.
   subscribes as `<userId>`, without `_web`), then into the owner's
   (`<ownerId>`).
 
+## Dev account and media library (2026-10-03, dev machine)
+
+- A third account, a dev one, is granted access by the owner for
+  development, so nothing done from a dev machine touches Oiko's account,
+  its trust cookie or its auth rate limit. Its session lives outside the
+  repo, on the dev machine only. Logging it in and running `watch` did not
+  disturb Oiko on the production host.
+- A granted-access account reads the owner's library:
+  `POST /hmsweb/users/library` `{dateFrom, dateTo: YYYYMMDD}` → 143 entries
+  over 7 days, newest first, all from camera A (the camera armed in
+  standby). Each has `deviceId` (bare
+  serial), `utcCreatedDate` (epoch ms), `mediaDurationSecond`,
+  `contentType` `video/mp4`, `reason` `motionRecord`, `ownerId`,
+  `presignedContentUrl` and `presignedThumbnailUrl` on
+  `arlos3-prod-z1.arlo.com`, `meta` (width, height, bit rate). No
+  `objCategory`: no smart detection on this plan.
+- A plain GET of the presigned URLs, without auth, returns the MP4 and a
+  640×357 JPEG thumbnail. They expire 24 h after the listing.
+- Presigned URLs are redacted from dumps: anyone holding one gets the
+  media.
+
+## Snapshot on demand (2026-10-03, dev machine, camera B)
+
+- `POST /hmsweb/users/devices/fullFrameSnapshot` (header `xcloudId`) with a
+  notify body: `{to: baseId, from: <userId>_web, transId, action: set,
+  resource: cameras/<id>, publishResponse: true, properties:
+  {activityState: fullFrameSnapshot}}` → `{success: true}` at once. A
+  granted-access account may ask.
+- The camera then reports `activityState` `fullFrameSnapshot`, then `idle`
+  4–7 s later, and the base sends `action: fullFrameSnapshotAvailable`,
+  resource `cameras/<id>`, `properties.presignedFullFrameSnapshotUrl`:
+  4–8 s after the request in two tries. Like every spontaneous packet, it
+  reaches every subscriber, once each: whoever asked, every client gets
+  `SnapshotReady`.
+- The URL (same `arlos3-prod-z1` host, 24 h) serves a 1920×1072 JPEG,
+  ~250 kB, as `binary/octet-stream`.
+
+## Live stream (2026-10-03, dev machine, camera B)
+
+- `POST /hmsweb/users/devices/startStream` (header `xcloudId`), notify body
+  with `responseUrl: ""` and `properties: {activityState: startUserStream,
+  cameraId}` → at once `{url, bandwidthTestUrl, nextgenServer: false}`.
+  `url` is `rtsp://<IP>:443/vzmodulelive/<camId>_<ms>?egressToken=…&
+  userAgent=arloMobileClient&dType=iOS…`: RTSP over TLS, so `rtsps://`
+  (the iOS user agent picks RTSP). A granted-access account may stream.
+- The certificate does not match the IP: clients must skip verification
+  (`ffmpeg -tls_verify 0 -rtsp_transport tcp -i …`). mpv plays it as is
+  (`--tls-verify` defaults to no); no desktop handler takes `rtsps://`, so
+  `arlo stream -play` runs a given player rather than `xdg-open`.
+- ffmpeg read H.264 1920×1072 and AAC 16 kHz mono within ~3 s.
+- The camera reports `activityState` `userStreamActive` (with the
+  `streamURL`) at start and `idle` one second after the reader leaves: no
+  stop request is needed. pyaarlo's stop (`activityState: idle`) is not
+  ported.
+- Battery 81 % → 78 % over two snapshots and a ~10 s stream.
+
+## Latest pictures without waking a camera (2026-10-03, dev machine)
+
+- `/hmsweb/v2/users/devices` carries, per camera, presigned URLs valid
+  24 h from the listing, at fixed paths per camera:
+  - `presignedLastImageUrl`: 640×357 JPEG, replaced after each recording
+    (it is then the recording's `_thumb.jpg`) and after each live stream
+    (`lastImage.jpg`, ~50 s after the stream started).
+  - `presignedFullFrameSnapshotUrl`: 1920×1072 JPEG, the latest
+    full-frame snapshot (`fullFrameSnapshot.jpg`); camera A's dated from
+    August.
+  - `presignedSnapshotUrl`: 404.
+  - `lastImageUploaded`: a bool.
+- Only the GET's `Last-Modified` dates a picture; reading the list does not
+  touch the camera.
+
 ## Not yet ported from pyaarlo (roadmap, 2026-09-30)
 
 What pyaarlo does that go-arlo does not, ranked by use for a home automation
@@ -231,21 +304,15 @@ flood/spotlights (no such hardware here).
    properties: {sirenState: on|off, duration, volume (1-8), pattern:
    alarm}}`. The VMB4000 has one (pyaarlo: models `VMB400*`, `VMB450*`).
    Makes a real alarm out of other sensors.
-3. **New recording events** (media library): pyaarlo also subscribes to
-   `u/<userId>/in/library/{add,update,remove}`; the library itself is
-   `GET /hmsweb/users/library` (`media.py`). Gives thumbnail and video URLs:
-   notifications with the picture. Cheaper variant: last image and capture
-   per camera (`presignedLastImageUrl`, `captured_today`).
+3. **New recording events**: pyaarlo also subscribes to
+   `u/<userId>/in/library/{add,update,remove}`. The library itself is
+   ported (`Library`); the events would push each new recording, for
+   notifications with the picture, instead of polling it.
 4. **Camera on/off** (`camera.py` `turn_on`/`turn_off`): notify
    `{action: set, resource: cameras/<id>, publishResponse: true,
    properties: {privacyActive: bool}}`. Privacy while someone is home.
 5. **Base restart** (`POST /hmsweb/users/devices/restart` `{deviceId}`):
    a remedy for a watchdog, while the base still reaches the cloud.
-6. **Snapshot on demand** (`request_snapshot`, notify `fullFrameSnapshot`,
-   presigned URL back over MQTT) and **live stream** (`start_stream`,
-   `POST /hmsweb/users/devices/startStream`, an RTSPS URL from the cloud;
-   motion packets already carry a `streamURL`). Both wake the camera and
-   cost battery; the stream fits a go2rtc-based camera view.
 
 Low value: motion sensitivity settings (set once in the app), custom modes
 and schedules (pyaarlo does not handle V3 schedules; the owner's run on

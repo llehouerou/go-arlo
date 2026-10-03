@@ -101,6 +101,10 @@ func TestStreamReceived(t *testing.T) {
 		{"camera mode change", true, `{"action":"is","resource":"devices/C1/states","states":{"activeMode":"armHome"}}`, nil},
 		{"device states without mode", true, `{"action":"is","resource":"devices/C1/states","states":{"schemaVersion":1}}`, nil},
 		{"properties as a list", true, `{"resource":"cameras/C1","properties":[{"serialNumber":"C1"}]}`, nil},
+		// Real VMB4000 packet ~8 s after Snapshot, trimmed.
+		{"snapshot", true, `{"action":"fullFrameSnapshotAvailable","from":"B","properties":{"disablePrivacyZones":false,"presignedFullFrameSnapshotUrl":"https://s"},"resource":"cameras/C1"}`,
+			[]string{"snapshot C1 https://s"}},
+		{"snapshot started", true, `{"action":"is","from":"B","properties":{"activityState":"fullFrameSnapshot"},"resource":"cameras/C1"}`, nil},
 	}
 	for _, tc := range cases {
 		es, err := testStream(t, tc.located).received([]byte(tc.raw))
@@ -158,6 +162,8 @@ func describe(e Event) string {
 			batt = fmt.Sprint(*e.Battery)
 		}
 		return fmt.Sprintf("state %s connected=%s battery=%s", e.ID, conn, batt)
+	case SnapshotReady:
+		return fmt.Sprintf("snapshot %s %s", e.ID, e.URL)
 	}
 	return fmt.Sprintf("%#v", e)
 }

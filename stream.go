@@ -171,6 +171,7 @@ type properties struct {
 	ConnectionState *string   `json:"connectionState"`
 	BatteryLevel    *int      `json:"batteryLevel"`
 	MotionDetected  *flexBool `json:"motionDetected"`
+	SnapshotURL     *string   `json:"presignedFullFrameSnapshotUrl"`
 }
 
 // events are what a device's properties report: its state, and whether it
@@ -188,6 +189,9 @@ func (p properties) events(id string) []Event {
 	}
 	if p.MotionDetected != nil {
 		out = append(out, Motion{ID: id, Active: bool(*p.MotionDetected)})
+	}
+	if p.SnapshotURL != nil {
+		out = append(out, SnapshotReady{ID: id, URL: *p.SnapshotURL})
 	}
 	return out
 }

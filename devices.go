@@ -19,6 +19,9 @@ type device struct {
 	ParentID string   `json:"parentId"`
 	XCloudID string   `json:"xCloudId"`
 	Topics   []string `json:"allowedMqttTopics"`
+	// A camera's latest pictures, presigned for 24 h from the listing.
+	LastImageURL string `json:"presignedLastImageUrl"`
+	SnapshotURL  string `json:"presignedFullFrameSnapshotUrl"`
 }
 
 func (a *api) devices(ctx context.Context) ([]device, error) {
@@ -40,12 +43,17 @@ func (a *api) webID() string { return a.sess.UserID + "_web" }
 // notify posts a message for a base station; Arlo relays it and the answer
 // comes back on the event stream.
 func (a *api) notify(ctx context.Context, base device, body map[string]any) error {
+	_, err := a.relay(ctx, "/hmsweb/users/devices/notify/"+base.ID, base, body)
+	return err
+}
+
+// relay posts a message for a base station to path, addressed as notify
+// addresses it, and returns Arlo's immediate answer.
+func (a *api) relay(ctx context.Context, path string, base device, body map[string]any) (json.RawMessage, error) {
 	body["to"] = base.ID
 	body["from"] = a.webID()
 	body["transId"] = "web!" + uuid.NewV4().String()
-	_, err := a.apiCall(ctx, http.MethodPost, "/hmsweb/users/devices/notify/"+base.ID,
-		map[string]string{"xcloudId": base.XCloudID}, body)
-	return err
+	return a.apiCall(ctx, http.MethodPost, path, map[string]string{"xcloudId": base.XCloudID}, body)
 }
 
 // ping subscribes this client to a base station's events, as pyaarlo does

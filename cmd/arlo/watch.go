@@ -45,6 +45,8 @@ func describe(e arlo.Event) string {
 		return fmt.Sprintf("motion %s active=%v", e.ID, e.Active)
 	case arlo.ModeChanged:
 		return fmt.Sprintf("mode %s (%s) %s", e.LocationName, e.LocationID, e.Mode)
+	case arlo.SnapshotReady:
+		return fmt.Sprintf("snapshot %s %s", e.ID, e.URL)
 	}
 	return fmt.Sprintf("%#v", e)
 }

@@ -193,7 +193,10 @@ var redacted = map[string]bool{
 	"factorauthcode": true, "userid": true, "email": true, "otp": true,
 	"password": true, "factornickname": true, "displayname": true,
 	"factordata": true, "firstname": true, "lastname": true,
-	"streamurl": true, // RTSP URL with an ingress token
+	"streamurl": true, "url": true, // RTSP URLs with an ingress token
+	// Presigned media URLs: anyone holding one can fetch the media.
+	"presignedcontenturl": true, "presignedthumbnailurl": true,
+	"presignedlastimageurl": true, "presignedfullframesnapshoturl": true,
 }
 
 func (a *api) dumpResponse(path string, resp *req.Response) {

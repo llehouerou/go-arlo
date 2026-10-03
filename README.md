@@ -5,10 +5,11 @@ browser pairing), follow the event stream, and read and set the location
 mode. The protocol is ported from [pyaarlo](https://github.com/twrecked/pyaarlo)
 0.8.0.23.
 
-Scope is deliberately small: device connectivity, battery, motion and the
-location's alarm mode. No video, streams, snapshots or library. Tested with a
-VMB4000 base station and Arlo Pro 2 cameras on an account using location
-(V3) modes, from a granted-access account.
+Scope is deliberately small: device connectivity, battery, motion, the
+location's alarm mode, the recordings library, the cameras' latest pictures,
+snapshots on demand and live stream URLs. Tested with a VMB4000 base station
+and Arlo Pro 2 cameras on an account using location (V3) modes, from a
+granted-access account.
 
 ## Library
 
@@ -28,12 +29,17 @@ go func() {
 		case arlo.DeviceState: // connected and/or battery of one device
 		case arlo.Motion:      // motion started or stopped on a camera
 		case arlo.ModeChanged: // the location's mode
+		case arlo.SnapshotReady: // a camera's new snapshot, whoever asked
 		}
 	})
 	// err: ctx ended, or a failure retrying cannot fix
 }()
 
 err := c.SetMode(ctx, arlo.ArmHome) // arlo.ErrNotConnected while Run is not connected
+rs, err := c.Library(ctx, from, to) // recordings of these days, with presigned URLs
+err := c.Snapshot(ctx, cameraID)    // SnapshotReady follows within seconds; wakes the camera
+u, err := c.Stream(ctx, cameraID)   // rtsps:// URL; read it within ~30 s, skipping TLS verification
+li, err := c.LastImages(ctx, cameraID) // latest picture and snapshot URLs, without waking the camera
 ```
 
 `Run` blocks. It logs in, connects to Arlo's MQTT broker, pings the base
@@ -71,6 +77,10 @@ go build ./cmd/arlo
 arlo login -email … -password-file … [-imap-user … -imap-password-file …]
 arlo watch  (same flags)   # print events
 arlo mode   (same flags) [standby|armHome|armAway]
+arlo library (same flags) [-days 7] [-urls]
+arlo snapshot (same flags) <camera id>
+arlo stream (same flags) [-play mpv] <camera id>
+arlo lastimage (same flags) [-o newest.jpg] <camera id>
 ```
 
 Without `-imap-user` the code is typed on stdin. Responses and MQTT messages
