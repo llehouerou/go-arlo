@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -27,50 +28,6 @@ func testStream(t *testing.T, located bool) *stream {
 		}
 	}
 	return st
-}
-
-func TestNewStream(t *testing.T) {
-	st := testStream(t, false)
-	if want := []string{"d/X/out/cameras/#", "d/X/out/devices/#", "u/U/in/userSession/connect", "u/U/in/userSession/disconnect"}; !slices.Equal(st.topics, want) {
-		t.Errorf("topics %q", st.topics)
-	}
-	want := Devices{
-		{ID: "B", Name: "Base", Type: "basestation"},
-		{ID: "C1", Name: "Gate", Type: "camera", BaseID: "B"},
-		{ID: "C2", Name: "Porch", Type: "camera", BaseID: "B"},
-	}
-	if !slices.Equal(st.devices, want) {
-		t.Errorf("devices %+v", st.devices)
-	}
-	if len(st.bases) != 1 || st.bases[0].ID != "B" {
-		t.Errorf("bases %+v", st.bases)
-	}
-}
-
-func TestStreamPinged(t *testing.T) {
-	st := testStream(t, false)
-	base := st.bases[0]
-	for _, step := range []struct {
-		err  error
-		want []string
-	}{
-		{nil, []string{"state B connected=true battery=-"}},
-		{nil, nil}, // only changes are reported
-		{errors.New("timeout"), []string{"state B connected=false battery=-"}},
-		{&apiError{status: 500}, nil},
-		{nil, []string{"state B connected=true battery=-"}},
-	} {
-		es, err := st.pinged(base, step.err)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := describeAll(es); !slices.Equal(got, step.want) {
-			t.Errorf("ping %v: got %q, want %q", step.err, got, step.want)
-		}
-	}
-	if _, err := st.pinged(base, &apiError{status: 401}); err == nil {
-		t.Error("a 401 ping did not end the connection")
-	}
 }
 
 // Packets from pyaarlo's docs/packets.md and the production host, trimmed.
@@ -126,19 +83,6 @@ func TestStreamReceived(t *testing.T) {
 	}
 }
 
-// Shape of a granted-access account: an empty location of its own, and the
-// owner's location holding the base.
-func TestStreamLocated(t *testing.T) {
-	st := testStream(t, true)
-	if got := describe(st.modeChanged(Standby)); got != "mode L1 Home standby" {
-		t.Errorf("located %q", got)
-	}
-	other := newStream("U", []device{{ID: "B2", Type: "basestation", ParentID: "B2"}})
-	if err := other.located(nil, []location{{ID: "L1", Gateways: []string{"OWNER_B"}}}); err == nil {
-		t.Error("found a location for an unknown base")
-	}
-}
-
 func describeAll(es []Event) []string {
 	var out []string
 	for _, e := range es {
@@ -149,6 +93,14 @@ func describeAll(es []Event) []string {
 
 func describe(e Event) string {
 	switch e := e.(type) {
+	case Connection:
+		return map[bool]string{true: "up", false: "down"}[e.Up]
+	case Devices:
+		ids := []string{"devices"}
+		for _, d := range e {
+			ids = append(ids, d.ID)
+		}
+		return strings.Join(ids, " ")
 	case Motion:
 		return fmt.Sprintf("motion %s %v", e.ID, e.Active)
 	case ModeChanged:

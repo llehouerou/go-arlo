@@ -2,16 +2,9 @@ package arlo
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"math/rand/v2"
-	"net"
-	"net/url"
 	"time"
-
-	"github.com/eclipse/paho.golang/packets"
-	"github.com/eclipse/paho.golang/paho"
 )
 
 // Event is what Run reports. DeviceState, Motion and ModeChanged report
@@ -109,25 +102,11 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	msgs := make(chan *paho.Publish, 64)
-	cl, err := c.connectMQTT(ctx, msgs)
+	conn, err := c.dial(ctx, c.api.mqttURL, c.api.sess.UserID, c.api.sess.Token, st.topics)
 	if err != nil {
 		return fmt.Errorf("arlo: MQTT: %w", err)
 	}
-	defer cl.Disconnect(&paho.Disconnect{})
-	subs := make([]paho.SubscribeOptions, len(st.topics))
-	for i, t := range st.topics {
-		subs[i] = paho.SubscribeOptions{Topic: t}
-	}
-	ack, err := cl.Subscribe(ctx, &paho.Subscribe{Subscriptions: subs})
-	if err != nil {
-		return fmt.Errorf("arlo: MQTT subscribe: %w", err)
-	}
-	for i, r := range ack.Reasons {
-		if r >= 0x80 && i < len(st.topics) {
-			c.log.Warn("arlo: MQTT subscription refused", "topic", st.topics[i], "reason", r)
-		}
-	}
+	defer conn.close()
 	c.log.Info("arlo: event stream up", "topics", len(st.topics), "bases", len(st.bases), "renew_in", renewIn.Round(time.Second))
 	emit(st.devices)
 	emit(Connection{Up: true})
@@ -182,7 +161,7 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-cl.Done():
+		case <-conn.done:
 			return errors.New("arlo: MQTT connection lost")
 		case <-renew.C:
 			return errRenew
@@ -194,68 +173,18 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 			refreshAll()
 		case cmd := <-c.cmds:
 			cmd.done <- cmd.fn(ctx, st, emit)
-		case m := <-msgs:
-			c.api.dump("mqtt"+m.Topic, map[string]any{"topic": m.Topic}, m.Payload)
-			es, err := st.received(m.Payload)
+		case m := <-conn.msgs:
+			c.api.dump("mqtt"+m.topic, map[string]any{"topic": m.topic}, m.payload)
+			es, err := st.received(m.payload)
 			if errors.Is(err, errLoggedOut) {
 				return err
 			}
 			if err != nil {
-				c.log.Warn("arlo: unreadable MQTT message", "topic", m.Topic, "err", err)
+				c.log.Warn("arlo: unreadable MQTT message", "topic", m.topic, "err", err)
 				continue
 			}
-			c.log.Debug("arlo: MQTT message", "topic", m.Topic, "events", len(es))
+			c.log.Debug("arlo: MQTT message", "topic", m.topic, "events", len(es))
 			emitAll(es)
 		}
 	}
-}
-
-// connectMQTT connects to the broker the session named, as pyaarlo does.
-// Received messages go to msgs until ctx ends.
-func (c *Client) connectMQTT(ctx context.Context, msgs chan<- *paho.Publish) (*paho.Client, error) {
-	u, err := url.Parse(c.api.mqttURL)
-	if err != nil {
-		return nil, err
-	}
-	if u.Scheme != "ssl" {
-		return nil, fmt.Errorf("unsupported MQTT URL %q", c.api.mqttURL)
-	}
-	conn, err := (&tls.Dialer{
-		NetDialer: &net.Dialer{Timeout: 15 * time.Second},
-		Config:    &tls.Config{ServerName: u.Hostname()},
-	}).DialContext(ctx, "tcp", u.Host)
-	if err != nil {
-		return nil, err
-	}
-	cl := paho.NewClient(paho.ClientConfig{
-		Conn: packets.NewThreadSafeConn(conn),
-		OnPublishReceived: []func(paho.PublishReceived) (bool, error){
-			func(pr paho.PublishReceived) (bool, error) {
-				select {
-				case msgs <- pr.Packet:
-				case <-ctx.Done():
-				}
-				return true, nil
-			},
-		},
-		OnServerDisconnect: func(d *paho.Disconnect) {
-			c.log.Warn("arlo: MQTT server disconnect", "reason", d.ReasonCode)
-		},
-		OnClientError: func(err error) { c.log.Debug("arlo: MQTT client error", "err", err) },
-	})
-	_, err = cl.Connect(ctx, &paho.Connect{
-		// pyaarlo: the last 10 digits must be random.
-		ClientID:     fmt.Sprintf("user_%s_%010d", c.api.sess.UserID, rand.IntN(1e10)),
-		Username:     c.api.sess.UserID,
-		UsernameFlag: true,
-		Password:     []byte(c.api.sess.Token),
-		PasswordFlag: true,
-		KeepAlive:    60,
-		CleanStart:   true,
-	})
-	if err != nil {
-		conn.Close()
-		return nil, err
-	}
-	return cl, nil
 }

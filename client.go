@@ -43,7 +43,8 @@ type Client struct {
 
 	// Only Run's goroutine touches api: Run refuses to run twice at once,
 	// and every other public method hands its work to Run through do.
-	api *api
+	api  *api
+	dial dialFunc
 
 	cmds      chan command
 	running   atomic.Bool
@@ -52,9 +53,10 @@ type Client struct {
 
 // New returns a client. It does not touch the network: see Run.
 func New(cfg Config) *Client {
-	return newClient(cfg, newAPI(cfg, defaultAuthHost, defaultAPIHost))
+	a := newAPI(cfg, defaultAuthHost, defaultAPIHost)
+	return newClient(cfg, a, mqttDialer(a.log))
 }
 
-func newClient(cfg Config, a *api) *Client {
-	return &Client{cfg: cfg, log: a.log, api: a, cmds: make(chan command)}
+func newClient(cfg Config, a *api, dial dialFunc) *Client {
+	return &Client{cfg: cfg, log: a.log, api: a, dial: dial, cmds: make(chan command)}
 }

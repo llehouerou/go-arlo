@@ -2,142 +2,16 @@ package arlo
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 )
 
-// fakeArlo plays both Arlo hosts. The browser is trusted once the pairing
-// cookie it sets comes back; only tokens it issued validate.
-type fakeArlo struct {
-	t     *testing.T
-	mu    sync.Mutex
-	calls []string
-	// issued is the last token handed out; "" validates nothing.
-	issued   string
-	refuse   bool // /api/auth answers 401
-	deviceID string
-	// trust is the only browser_trust value accepted; Arlo rotates it on
-	// every trusted startAuth.
-	trust int
-}
-
-func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	f.calls = append(f.calls, r.URL.Path)
-	if r.URL.Path != "/hmsweb/users/session/v3" {
-		if id := r.Header.Get("X-User-Device-Id"); f.deviceID == "" {
-			f.deviceID = id
-		} else if id != f.deviceID {
-			f.t.Errorf("%s: device id %q, want %q", r.URL.Path, id, f.deviceID)
-		}
-	}
-	var body map[string]any
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	authorized := r.Header.Get("Authorization") == base64.StdEncoding.EncodeToString([]byte(f.issued)) && f.issued != ""
-	trusted := false
-	if ck, err := r.Cookie("trust"); err == nil && f.trust > 0 && ck.Value == fmt.Sprint(f.trust) {
-		trusted = true
-	}
-	meta := func(data any) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"meta": map[string]any{"code": 200}, "data": data})
-	}
-	refuse := func(code int) {
-		w.WriteHeader(code)
-		_ = json.NewEncoder(w).Encode(map[string]any{"meta": map[string]any{"code": code, "error": 9204, "message": "no"}})
-	}
-	token := func() string {
-		f.issued = "tok-" + time.Now().Format("150405.000000000")
-		return f.issued
-	}
-	expires := time.Now().Add(2 * time.Hour).Unix()
-
-	switch r.URL.Path {
-	case "/api/auth":
-		if f.refuse {
-			refuse(http.StatusUnauthorized)
-			return
-		}
-		if pw, _ := base64.StdEncoding.DecodeString(body["password"].(string)); string(pw) != "secret" {
-			f.t.Errorf("password %q", pw)
-		}
-		meta(map[string]any{"token": token(), "userId": "U1", "expiresIn": expires, "authCompleted": false})
-	case "/api/getFactorId":
-		if !authorized || !trusted {
-			// What Arlo really answers for an untrusted browser.
-			_ = json.NewEncoder(w).Encode(map[string]any{"meta": map[string]any{"code": 400, "error": 9261, "message": "Invalid factor data"}})
-			return
-		}
-		meta(map[string]any{"factorId": "F-browser"})
-	case "/api/getFactors":
-		meta(map[string]any{"items": []any{
-			map[string]any{"factorId": "F-sms", "factorType": "SMS"},
-			map[string]any{"factorId": "F-mail", "factorType": "EMAIL"},
-		}})
-	case "/api/startAuth":
-		switch body["factorId"] {
-		case "F-browser":
-			f.trust++
-			http.SetCookie(w, &http.Cookie{Name: "trust", Value: fmt.Sprint(f.trust), Path: "/"})
-			meta(map[string]any{"accessToken": map[string]any{"token": token(), "userId": "U1", "expiresIn": expires}})
-		case "F-mail":
-			meta(map[string]any{"factorAuthCode": "FAC"})
-		default:
-			f.t.Errorf("startAuth factor %v", body["factorId"])
-		}
-	case "/api/finishAuth":
-		if body["otp"] != "123456" || body["factorAuthCode"] != "FAC" || body["isBrowserTrusted"] != true {
-			f.t.Errorf("finishAuth body %v", body)
-		}
-		meta(map[string]any{"accessToken": map[string]any{"token": token(), "userId": "U1", "expiresIn": expires, "browserAuthCode": "BAC"}})
-	case "/api/validateAccessToken":
-		if !authorized {
-			refuse(http.StatusUnauthorized)
-			return
-		}
-		meta(map[string]any{})
-	case "/api/startPairingFactor":
-		if body["factorAuthCode"] != "BAC" {
-			f.t.Errorf("pairing body %v", body)
-		}
-		f.trust++
-		http.SetCookie(w, &http.Cookie{Name: "trust", Value: fmt.Sprint(f.trust), Path: "/"})
-		meta(map[string]any{})
-	case "/hmsweb/users/session/v3":
-		if r.Header.Get("Authorization") != f.issued || r.URL.Query().Get("eventId") == "" {
-			f.t.Errorf("session/v3 auth %q", r.Header.Get("Authorization"))
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{
-			"mqttUrl": "ssl://mqtt.example:8883",
-		}})
-	default:
-		f.t.Errorf("unexpected %s", r.URL.Path)
-	}
-}
-
-func (f *fakeArlo) takeCalls() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	c := f.calls
-	f.calls = nil
-	return c
-}
-
 func TestLogin(t *testing.T) {
-	fake := &fakeArlo{t: t}
+	fake := newFakeArlo(t)
 	srv := httptest.NewServer(fake)
 	defer srv.Close()
 	path := filepath.Join(t.TempDir(), "session.json")
@@ -148,7 +22,7 @@ func TestLogin(t *testing.T) {
 			Email: "me@example.com", Password: "secret", SessionPath: path,
 			Code: func(context.Context, time.Time) (string, error) { codes++; return "123456", nil },
 		}
-		c := newClient(cfg, newAPI(cfg, srv.URL, srv.URL))
+		c := newClient(cfg, newAPI(cfg, srv.URL, srv.URL), nil)
 		if err := c.login(t.Context()); err != nil {
 			return err
 		}
