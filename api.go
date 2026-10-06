@@ -66,11 +66,15 @@ type apiError struct {
 	path    string
 	status  int
 	code    int
+	arloErr int // the auth host's meta.error, finer than code
 	message string
 }
 
 func (e *apiError) Error() string {
-	if e.code != 0 {
+	switch {
+	case e.arloErr != 0:
+		return fmt.Sprintf("%s: HTTP %d, code %d, error %d: %s", e.path, e.status, e.code, e.arloErr, e.message)
+	case e.code != 0:
 		return fmt.Sprintf("%s: HTTP %d, code %d: %s", e.path, e.status, e.code, e.message)
 	}
 	return fmt.Sprintf("%s: HTTP %d %s", e.path, e.status, e.message)
@@ -83,6 +87,7 @@ func unwrap(path string, status int, body []byte) (json.RawMessage, error) {
 	var env struct {
 		Meta *struct {
 			Code    int    `json:"code"`
+			Error   int    `json:"error"`
 			Message string `json:"message"`
 		} `json:"meta"`
 		Success *bool           `json:"success"`
@@ -95,7 +100,7 @@ func unwrap(path string, status int, body []byte) (json.RawMessage, error) {
 	case env.Meta != nil && env.Meta.Code == 200 && status == http.StatusOK:
 		return env.Data, nil
 	case env.Meta != nil:
-		return nil, &apiError{path: path, status: status, code: env.Meta.Code, message: env.Meta.Message}
+		return nil, &apiError{path: path, status: status, code: env.Meta.Code, arloErr: env.Meta.Error, message: env.Meta.Message}
 	case env.Success != nil && *env.Success && status == http.StatusOK:
 		if env.Data == nil {
 			return json.RawMessage("{}"), nil

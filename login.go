@@ -157,9 +157,15 @@ func (a *api) authenticate(ctx context.Context) error {
 	return nil
 }
 
+// errUntrusted is getFactorId's error for a browser Arlo does not trust.
+const errUntrusted = 9261
+
 // secondFactor completes an auth Arlo left incomplete. A trusted browser
 // needs no code; otherwise the code is emailed and the browser gets paired
-// afterwards, which it reports.
+// afterwards, which it reports. Only an explicit "not trusted" leads to the
+// email: any other refusal of the trust check, as during an outage of Arlo's
+// identity service, fails the auth so that a later retry finds the trust
+// cookie still good.
 func (a *api) secondFactor(ctx context.Context) (paired bool, err error) {
 	a.preflight(ctx, "/api/getFactorId")
 	data, err := a.authCall(ctx, http.MethodPost, "/api/getFactorId", true, map[string]any{
@@ -168,8 +174,11 @@ func (a *api) secondFactor(ctx context.Context) (paired bool, err error) {
 		"userId":     a.sess.UserID,
 	})
 	var refused *apiError
-	if err != nil && !errors.As(err, &refused) {
-		return false, err
+	if err != nil && (!errors.As(err, &refused) || refused.arloErr != errUntrusted) {
+		return false, fmt.Errorf("trusted browser check: %w", err)
+	}
+	if err != nil {
+		a.log.Warn("arlo: browser not trusted, 2FA by email", "err", err)
 	}
 	if err == nil {
 		var f struct {

@@ -27,6 +27,7 @@ type fakeArlo struct {
 	issued   string
 	tokens   int
 	refuse   bool // /api/auth answers 401
+	mfaDown  bool // the trust check fails as in Arlo's identity outages
 	deviceID string
 	// trust is the only browser_trust value accepted; Arlo rotates it on
 	// every trusted startAuth.
@@ -96,6 +97,10 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		meta(map[string]any{"token": f.token(), "userId": "U1", "expiresIn": expires, "authCompleted": false})
 	case "/api/getFactorId":
+		if f.mfaDown {
+			_ = json.NewEncoder(w).Encode(map[string]any{"meta": map[string]any{"code": 400, "message": "Mfa disabled by service"}})
+			return
+		}
 		if !authorized || !trusted {
 			// What Arlo really answers for an untrusted browser.
 			_ = json.NewEncoder(w).Encode(map[string]any{"meta": map[string]any{"code": 400, "error": 9261, "message": "Invalid factor data"}})

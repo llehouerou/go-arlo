@@ -75,6 +75,24 @@ func TestLogin(t *testing.T) {
 		t.Errorf("code asked %d times", codes)
 	}
 
+	// The trust check failing for another reason than an untrusted browser:
+	// no email 2FA, and the trust cookie stays good for the next login.
+	fake.issued, fake.mfaDown = "expired", true
+	if err := login(); err == nil {
+		t.Fatal("login succeeded with the trust check down")
+	}
+	expect("trust check down", "/api/validateAccessToken", "/api/auth", "/api/getFactorId")
+	fake.mfaDown = false
+	if err := login(); err != nil {
+		t.Fatal(err)
+	}
+	expect("trust check back",
+		"/api/validateAccessToken", "/api/auth", "/api/getFactorId", "/api/startAuth",
+		"/api/validateAccessToken", "/hmsweb/users/session/v3")
+	if codes != 1 {
+		t.Errorf("code asked %d times", codes)
+	}
+
 	// Refused auth: exactly one attempt, then an error.
 	fake.issued, fake.refuse = "expired", true
 	if err := login(); err == nil {
