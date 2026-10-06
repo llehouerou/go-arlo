@@ -286,6 +286,40 @@ account; the `logout` pyaarlo warns about must come from something else.
   - `lastImageUploaded`: a bool.
 - Only the GET's `Last-Modified` dates a picture; reading the list does not
   touch the camera.
+- `LastImages` answers from memory since 2026-10-06: `Run` keeps both URLs
+  from the device list it reads on each connection and token renewal
+  (under 2 h apart, far within the 24 h), and takes the snapshot URL from
+  `SnapshotReady`.
+
+## Live view limits (2026-10-06, dev machine, camera B)
+
+- **No session limit seen**: one reader (`ffmpeg … -f null -`) read a
+  stream for 11 min 38 s until it was killed; Arlo never ended it, no
+  error, no `activityState` change meanwhile. The camera went `idle` ~1 s
+  after the reader left. Battery 78 % → 76 % over that stream and its
+  start (77 % at start, 76 % one minute after the end).
+- **A second `startStream` while the stream runs joins it**: same path
+  (`/vzmodulelive/<camId>_<ms>`, the `<ms>` of the first start), a new
+  `egressToken`, answered in ~270 ms. Both URLs were read at once by two
+  readers, the first without a gap; the second's timestamps continue the
+  first's (one stream, two egresses). A third call 2 min later, the first
+  reader still on, got the same path again. The camera reported
+  `userStreamActive` again (with a `streamURL`) for each call, `idle` only
+  once the last reader left.
+- **Timing**: from an idle camera, the first key frame reached the reader
+  ~5.5 s after the `startStream` call (the URL itself comes in ~0.3 s;
+  ffprobe with `-analyzeduration 0 -probesize 32`). A reader joining a
+  running stream got its first key frame ~4 s after its call: no cached
+  GOP, it waits for the next key frame. Key frames every **2.0 s**
+  (48 frames at 24 fps, 40 or 24 when the frame rate drops at night).
+- **Codecs** (ffprobe): video H.264 High, level 4.0 (SPS `67 64 00 28`),
+  1920×1072, `yuvj420p`, ~24 fps variable (`r_frame_rate` 289/12); audio
+  AAC LC, 16 kHz, mono (`AudioSpecificConfig` `14 08`). Browser codecs:
+  `avc1.640028, mp4a.40.2`. ffmpeg logs a few non-monotonic video DTS
+  (78 over 11 min), harmless to a null muxer.
+- **Portable URLs**: a URL obtained on the dev machine was read from the
+  production host (ffprobe with the URL only, no session copied): the
+  egress is not bound to the requester's IP.
 
 ## Not yet ported from pyaarlo (roadmap, 2026-09-30)
 

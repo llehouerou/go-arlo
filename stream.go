@@ -10,15 +10,16 @@ import (
 )
 
 // stream is what one connection to the event stream knows: its base
-// stations, whether each answers pings, and the account's Location. It turns
-// what the connection receives into events and does no I/O. Only Run's
-// goroutine holds it.
+// stations, whether each answers pings, the account's Location and each
+// camera's latest pictures. It turns what the connection receives into
+// events and does no I/O. Only Run's goroutine holds it.
 type stream struct {
 	bases   []device
 	topics  []string // to subscribe to, sorted
 	devices Devices
 	baseUp  map[string]bool
-	loc     location // zero until located
+	loc     location              // zero until located
+	images  map[string]LastImages // per camera
 }
 
 // newStream reads the account's device list.
@@ -29,6 +30,7 @@ func newStream(userID string, devs []device) *stream {
 			"u/" + userID + "/in/userSession/disconnect",
 		},
 		baseUp: map[string]bool{},
+		images: map[string]LastImages{},
 	}
 	for _, d := range devs {
 		s.topics = append(s.topics, d.Topics...)
@@ -39,6 +41,8 @@ func newStream(userID string, devs []device) *stream {
 		}
 		if d.Type == "basestation" {
 			s.bases = append(s.bases, d)
+		} else {
+			s.images[d.ID] = LastImages{Image: d.LastImageURL, Snapshot: d.SnapshotURL}
 		}
 		dev := Device{ID: d.ID, Name: d.Name, Model: d.Model, Type: d.Type}
 		if d.ParentID != d.ID {
@@ -85,6 +89,12 @@ func (s *stream) received(payload []byte) ([]Event, error) {
 				continue
 			}
 			e = s.modeChanged(dm.Mode)
+		}
+		if sr, ok := e.(SnapshotReady); ok {
+			if li, known := s.images[sr.ID]; known {
+				li.Snapshot = sr.URL
+				s.images[sr.ID] = li
+			}
 		}
 		out = append(out, e)
 	}

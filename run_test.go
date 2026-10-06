@@ -225,10 +225,28 @@ func TestRunCommands(t *testing.T) {
 		// Reported once set, then again as B applies it.
 		r.expect("set mode", "mode L1 Home armAway", "mode L1 Home armAway")
 
+		// Latest pictures come from the device list read on connection,
+		// without a request.
+		fake.takeCalls()
+		li, err := r.c.LastImages(ctx, "C1")
+		if err != nil || li != (LastImages{Image: "https://last/C1", Snapshot: "https://snap/C1"}) {
+			t.Errorf("last images %+v, %v", li, err)
+		}
+		if calls := fake.takeCalls(); calls != nil {
+			t.Errorf("last images calls %q", calls)
+		}
+		if _, err := r.c.LastImages(ctx, "B"); err == nil || err.Error() != "arlo: last images: no camera B" {
+			t.Errorf("last images of a base station: %v", err)
+		}
+
 		if err := r.c.Snapshot(ctx, "C1"); err != nil {
 			t.Fatal(err)
 		}
 		r.expect("snapshot", "snapshot C1 https://snap/C1-new")
+		// SnapshotReady updates the latest snapshot.
+		if li, err := r.c.LastImages(ctx, "C1"); err != nil || li.Snapshot != "https://snap/C1-new" {
+			t.Errorf("last images after a snapshot %+v, %v", li, err)
+		}
 		if err := r.c.Snapshot(ctx, "B"); err == nil || err.Error() != "arlo: snapshot: no camera B" {
 			t.Errorf("snapshot of a base station: %v", err)
 		}
@@ -243,11 +261,6 @@ func TestRunCommands(t *testing.T) {
 			ContentType: "video/mp4", Reason: "motionRecord", Object: "Person", URL: "https://v", ThumbnailURL: "https://t"}
 		if err != nil || len(rs) != 1 || rs[0] != want {
 			t.Errorf("library %+v, %v", rs, err)
-		}
-
-		li, err := r.c.LastImages(ctx, "C1")
-		if err != nil || li != (LastImages{Image: "https://last/C1", Snapshot: "https://snap/C1"}) {
-			t.Errorf("last images %+v, %v", li, err)
 		}
 
 		// Commands wait through a reconnection.

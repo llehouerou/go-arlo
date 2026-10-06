@@ -36,9 +36,11 @@ func (c *Client) Snapshot(ctx context.Context, cameraID string) error {
 	})
 }
 
-// Stream starts a camera's live stream and returns its RTSPS URL. Arlo
-// stops the stream when nothing reads it for about 30 seconds. It wakes the
-// camera, so it costs battery. It waits for Run's connection.
+// Stream starts a camera's live stream and returns its RTSPS URL. Called
+// while the stream runs, it returns a new URL to the same stream; both can
+// be read at once. Arlo sets no time limit and stops the stream when
+// nothing reads it. It wakes the camera, so it costs battery. It waits for
+// Run's connection.
 func (c *Client) Stream(ctx context.Context, cameraID string) (string, error) {
 	var u string
 	err := c.do(ctx, "stream", func(ctx context.Context, st *stream, _ func(Event)) error {
@@ -98,20 +100,17 @@ type LastImages struct {
 	Snapshot string // 1920×1072, the latest full-frame snapshot, whoever asked
 }
 
-// LastImages reads a camera's latest pictures from the device list. It
-// waits for Run's connection.
+// LastImages returns a camera's latest pictures from memory, without a
+// request: Run keeps them from the device list it reads on every
+// connection and token renewal, less than two hours apart, and from
+// SnapshotReady. It waits for Run's connection.
 func (c *Client) LastImages(ctx context.Context, cameraID string) (LastImages, error) {
 	var li LastImages
-	err := c.do(ctx, "last images", func(ctx context.Context, _ *stream, _ func(Event)) error {
-		devs, err := c.api.devices(ctx)
-		if err != nil {
-			return err
-		}
-		i := slices.IndexFunc(devs, func(d device) bool { return d.ID == cameraID && d.Type == "camera" })
-		if i < 0 {
+	err := c.do(ctx, "last images", func(_ context.Context, st *stream, _ func(Event)) error {
+		var ok bool
+		if li, ok = st.images[cameraID]; !ok {
 			return fmt.Errorf("no camera %s", cameraID)
 		}
-		li = LastImages{Image: devs[i].LastImageURL, Snapshot: devs[i].SnapshotURL}
 		return nil
 	})
 	return li, err
