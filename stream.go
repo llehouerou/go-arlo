@@ -18,12 +18,18 @@ type stream struct {
 	topics  []string // to subscribe to, sorted
 	devices Devices
 	baseUp  map[string]bool
-	loc     location              // zero until located
+	loc     location
 	images  map[string]LastImages // per camera
 }
 
-// newStream reads the account's device list.
-func newStream(userID string, devs []device) *stream {
+// newStream reads the account's device list and picks its Location among
+// its own and shared ones: the one holding its base stations. An account can
+// also see locations of its own with no device, and shared locations name
+// their gateways "<ownerId>_<deviceId>".
+//
+// ponytail: one location with bases only (ours); SetMode would need a
+// location argument for accounts with several.
+func newStream(userID string, devs []device, own, shared []location) (*stream, error) {
 	s := &stream{
 		topics: []string{
 			"u/" + userID + "/in/userSession/connect",
@@ -55,7 +61,20 @@ func newStream(userID string, devs []device) *stream {
 	// Each device of a base lists the same topics.
 	slices.Sort(s.topics)
 	s.topics = slices.Compact(s.topics)
-	return s
+
+	var found []location
+	for _, l := range append(own, shared...) {
+		if slices.ContainsFunc(l.Gateways, func(g string) bool {
+			return slices.ContainsFunc(s.bases, func(b device) bool { return g == b.ID || strings.HasSuffix(g, "_"+b.ID) })
+		}) {
+			found = append(found, l)
+		}
+	}
+	if len(found) != 1 {
+		return nil, fmt.Errorf("locations: %d hold a base station, only one is supported", len(found))
+	}
+	s.loc = found[0]
+	return s, nil
 }
 
 // pinged takes a base station's answer to a ping and reports its presence
@@ -87,7 +106,7 @@ func (s *stream) received(payload []byte) ([]Event, error) {
 	var out []Event
 	for _, e := range msg.events() {
 		if dm, ok := e.(deviceMode); ok {
-			if s.loc.ID == "" || !slices.ContainsFunc(s.bases, func(b device) bool { return b.ID == dm.ID }) {
+			if !slices.ContainsFunc(s.bases, func(b device) bool { return b.ID == dm.ID }) {
 				continue
 			}
 			e = s.modeChanged(dm.Mode)
@@ -101,29 +120,6 @@ func (s *stream) received(payload []byte) ([]Event, error) {
 		out = append(out, e)
 	}
 	return out, nil
-}
-
-// located picks the account's Location among its own and shared ones: the
-// one holding its base stations. An account can also see locations of its
-// own with no device, and shared locations name their gateways
-// "<ownerId>_<deviceId>".
-//
-// ponytail: one location with bases only (ours); SetMode would need a
-// location argument for accounts with several.
-func (s *stream) located(own, shared []location) error {
-	var found []location
-	for _, l := range append(own, shared...) {
-		if slices.ContainsFunc(l.Gateways, func(g string) bool {
-			return slices.ContainsFunc(s.bases, func(b device) bool { return g == b.ID || strings.HasSuffix(g, "_"+b.ID) })
-		}) {
-			found = append(found, l)
-		}
-	}
-	if len(found) != 1 {
-		return fmt.Errorf("locations: %d hold a base station, only one is supported", len(found))
-	}
-	s.loc = found[0]
-	return nil
 }
 
 // modeChanged reports the Location's mode, read or set.

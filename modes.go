@@ -91,9 +91,6 @@ func (a *api) setMode(ctx context.Context, loc location, mode Mode) error {
 // and reports the new mode as a ModeChanged event.
 func (c *Client) SetMode(ctx context.Context, mode Mode) error {
 	return c.h.do(ctx, "set mode "+string(mode), func(ctx context.Context, st *stream, emit func(Event)) error {
-		if err := c.resolveLocation(ctx, st); err != nil {
-			return err
-		}
 		if err := c.api.setMode(ctx, st.loc, mode); err != nil {
 			return err
 		}
@@ -102,24 +99,8 @@ func (c *Client) SetMode(ctx context.Context, mode Mode) error {
 	})
 }
 
-// resolveLocation finds the location once per connection; a failure is
-// retried on the next call.
-func (c *Client) resolveLocation(ctx context.Context, st *stream) error {
-	if st.loc.ID != "" {
-		return nil
-	}
-	own, shared, err := c.api.locations(ctx)
-	if err != nil {
-		return err
-	}
-	return st.located(own, shared)
-}
-
 // readMode reports the location's current mode.
 func (c *Client) readMode(ctx context.Context, st *stream, emit func(Event)) error {
-	if err := c.resolveLocation(ctx, st); err != nil {
-		return fmt.Errorf("arlo: read mode: %w", err)
-	}
 	mode, _, err := c.api.activeMode(ctx, st.loc)
 	if err != nil {
 		return fmt.Errorf("arlo: read mode: %w", err)

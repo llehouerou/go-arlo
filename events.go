@@ -90,7 +90,14 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 	if err != nil {
 		return fmt.Errorf("arlo: %w", err)
 	}
-	st := newStream(acc.userID, devs)
+	own, shared, err := c.api.locations(ctx)
+	if err != nil {
+		return fmt.Errorf("arlo: %w", err)
+	}
+	st, err := newStream(acc.userID, devs, own, shared)
+	if err != nil {
+		return fmt.Errorf("arlo: %w", err)
+	}
 	emitAll := func(es []Event) {
 		for _, e := range es {
 			emit(e)
