@@ -321,6 +321,37 @@ account; the `logout` pyaarlo warns about must come from something else.
   production host (ffprobe with the URL only, no session copied): the
   egress is not bound to the requester's IP.
 
+## New recordings (2026-10-06, dev machine, camera A)
+
+- A granted-access account receives the library notices: subscribed to
+  `u/<userId>/in/library/{add,update}` (pyaarlo also subscribes to
+  `remove`, and parses none of them: it reloads the library on
+  `mediaUploadNotification` / `recordingStopped`).
+- Each motion recording brings two messages on `library/add`, about a
+  second apart, at the end of its upload: resource
+  `mediaUploadNotification`, no `action`, with `deviceId`, `ownerId`,
+  `uniqueId` (`<ownerId>_<camId>`), `createdDate` (`YYYYMMDD`) and
+  `mediaObjectCount` (the day's count). The first carries only
+  `presignedLastImageUrl`; the second also `presignedContentUrl`,
+  `presignedThumbnailUrl` and `recordingStopped: true`. Nothing came on
+  `update`, and no repeat, over two recordings.
+- The notice lacks the library's `utcCreatedDate`,
+  `mediaDurationSecond`, `reason` and `objCategory`, but the object is
+  named after `utcCreatedDate`: `…/<camId>/recordings/<epoch ms>.mp4` and
+  `<epoch ms>_thumb.jpg`, the same object the library lists.
+- Timing: recordings of 18 s and 20 s, notices 24 s and 33 s after their
+  start (6 s and 14 s after their end), within a second of the
+  `motionDetected: false` and `idle` packets. The base's packets lag the
+  same way: `motionDetected: true` came 7 s and 14 s after the start
+  (`alertStreamActive` `dateStarted` ≈ `utcCreatedDate`), so the base
+  seems to send its camera packets late while it uploads.
+- The notice's URLs read at once: GET right on receipt gave the MP4
+  (1.2–1.3 MB, `video/mp4`) and the 640×357 thumbnail, both
+  `Last-Modified` the second the notice was sent. `POST /library` listed
+  the entry 5 s after the notice (first poll).
+- `Run` turns the second message into `RecordingAdded`; a recording made
+  while disconnected is not replayed.
+
 ## Not yet ported from pyaarlo (roadmap, 2026-09-30)
 
 What pyaarlo does that go-arlo does not, ranked by use for a home automation
@@ -338,10 +369,8 @@ flood/spotlights (no such hardware here).
    properties: {sirenState: on|off, duration, volume (1-8), pattern:
    alarm}}`. The VMB4000 has one (pyaarlo: models `VMB400*`, `VMB450*`).
    Makes a real alarm out of other sensors.
-3. **New recording events**: pyaarlo also subscribes to
-   `u/<userId>/in/library/{add,update,remove}`. The library itself is
-   ported (`Library`); the events would push each new recording, for
-   notifications with the picture, instead of polling it.
+3. ~~**New recording events**~~: done 2026-10-06, `RecordingAdded` (see
+   "New recordings").
 4. **Camera on/off** (`camera.py` `turn_on`/`turn_off`): notify
    `{action: set, resource: cameras/<id>, publishResponse: true,
    properties: {privacyActive: bool}}`. Privacy while someone is home.

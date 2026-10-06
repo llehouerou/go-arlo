@@ -111,7 +111,7 @@ func TestRunEvents(t *testing.T) {
 		fake := newFakeArlo(t)
 		r := startRun(t, fake, withCode)
 		r.expect("connect", connected...)
-		want := []string{"d/XB/out/cameras/#", "d/XB/out/devices/#", "u/U1/in/userSession/connect", "u/U1/in/userSession/disconnect"}
+		want := []string{"d/XB/out/cameras/#", "d/XB/out/devices/#", "u/U1/in/library/add", "u/U1/in/library/update", "u/U1/in/userSession/connect", "u/U1/in/userSession/disconnect"}
 		if !slices.Equal(fake.topics, want) {
 			t.Errorf("topics %q", fake.topics)
 		}

@@ -61,6 +61,13 @@ func TestStreamReceived(t *testing.T) {
 		// Real VMB4000 packet ~8 s after Snapshot, trimmed.
 		{"snapshot", true, `{"action":"fullFrameSnapshotAvailable","from":"B","properties":{"disablePrivacyZones":false,"presignedFullFrameSnapshotUrl":"https://s"},"resource":"cameras/C1"}`,
 			[]string{"snapshot C1 https://s"}},
+		// Real messages on u/<userId>/in/library/add around a recording,
+		// trimmed: the last image first, then the recording.
+		{"last image uploaded", true, `{"createdDate":"20000101","deviceId":"C1","mediaObjectCount":130,"ownerId":"O","presignedLastImageUrl":"https://h/O/C1/lastImage.jpg?s=x","resource":"mediaUploadNotification","uniqueId":"O_C1"}`, nil},
+		{"recording uploaded", true, `{"createdDate":"20000101","deviceId":"C1","mediaObjectCount":131,"ownerId":"O","presignedContentUrl":"https://h/O/C1/recordings/946684800123.mp4?s=x","presignedLastImageUrl":"https://h/O/C1/lastImage.jpg?s=x","presignedThumbnailUrl":"https://h/O/C1/recordings/946684800123_thumb.jpg?s=x","recordingStopped":true,"resource":"mediaUploadNotification","uniqueId":"O_C1"}`,
+			[]string{"recording C1 946684800123 video/mp4 https://h/O/C1/recordings/946684800123.mp4?s=x https://h/O/C1/recordings/946684800123_thumb.jpg?s=x"}},
+		{"recording with an unexpected name", true, `{"deviceId":"C1","presignedContentUrl":"https://h/clip","resource":"mediaUploadNotification"}`,
+			[]string{"recording C1 -62135596800000  https://h/clip "}},
 		{"snapshot started", true, `{"action":"is","from":"B","properties":{"activityState":"fullFrameSnapshot"},"resource":"cameras/C1"}`, nil},
 	}
 	for _, tc := range cases {
@@ -116,6 +123,8 @@ func describe(e Event) string {
 		return fmt.Sprintf("state %s connected=%s battery=%s", e.ID, conn, batt)
 	case SnapshotReady:
 		return fmt.Sprintf("snapshot %s %s", e.ID, e.URL)
+	case RecordingAdded:
+		return fmt.Sprintf("recording %s %d %s %s %s", e.CameraID, e.Created.UnixMilli(), e.ContentType, e.URL, e.ThumbnailURL)
 	}
 	return fmt.Sprintf("%#v", e)
 }

@@ -28,6 +28,8 @@ func newStream(userID string, devs []device) *stream {
 		topics: []string{
 			"u/" + userID + "/in/userSession/connect",
 			"u/" + userID + "/in/userSession/disconnect",
+			"u/" + userID + "/in/library/add",
+			"u/" + userID + "/in/library/update",
 		},
 		baseUp: map[string]bool{},
 		images: map[string]LastImages{},
@@ -214,14 +216,19 @@ type packet struct {
 	States     json.RawMessage `json:"states"`
 	Properties json.RawMessage `json:"properties"`
 	Devices    json.RawMessage `json:"devices"`
+	// A mediaUploadNotification's.
+	DeviceID     string `json:"deviceId"`
+	ContentURL   string `json:"presignedContentUrl"`
+	ThumbnailURL string `json:"presignedThumbnailUrl"`
 }
 
 // events turns a packet into events. See pyaarlo's docs/packets.md: a base
 // station answers "get devices" with its children's full state (resource
 // "devices"), cameras push changes as they happen (resource
 // "cameras/<id>") and a mode change shows as every device's
-// "devices/<id>/states" with its activeMode. Packets of an unexpected shape
-// yield nothing.
+// "devices/<id>/states" with its activeMode. A new recording comes as a
+// "mediaUploadNotification" with its content URL. Packets of an unexpected
+// shape yield nothing.
 func (m packet) events() []Event {
 	var out []Event
 	switch {
@@ -251,6 +258,8 @@ func (m packet) events() []Event {
 		}
 		id := strings.TrimSuffix(strings.TrimPrefix(m.Resource, "devices/"), "/states")
 		out = append(out, deviceMode{ID: id, Mode: s.ActiveMode})
+	case m.Resource == "mediaUploadNotification" && m.ContentURL != "":
+		out = append(out, recordingAdded(m.DeviceID, m.ContentURL, m.ThumbnailURL))
 	}
 	return out
 }

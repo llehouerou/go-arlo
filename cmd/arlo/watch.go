@@ -47,6 +47,8 @@ func describe(e arlo.Event) string {
 		return fmt.Sprintf("mode %s (%s) %s", e.LocationName, e.LocationID, e.Mode)
 	case arlo.SnapshotReady:
 		return fmt.Sprintf("snapshot %s %s", e.ID, e.URL)
+	case arlo.RecordingAdded:
+		return fmt.Sprintf("recording %s created %s %s", e.CameraID, e.Created.Local().Format(time.DateTime), e.ContentType)
 	}
 	return fmt.Sprintf("%#v", e)
 }

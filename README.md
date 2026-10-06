@@ -30,6 +30,7 @@ go func() {
 		case arlo.Motion:      // motion started or stopped on a camera
 		case arlo.ModeChanged: // the location's mode
 		case arlo.SnapshotReady: // a camera's new snapshot, whoever asked
+		case arlo.RecordingAdded: // a new recording in the library, with its URLs
 		}
 	})
 	// err: ctx ended, or a failure retrying cannot fix
