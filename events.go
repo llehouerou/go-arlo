@@ -23,29 +23,15 @@ var (
 	errLoggedOut = errors.New("logged out by Arlo: did another session take the account?")
 )
 
-// ErrAlreadyRunning is Run's error while another Run of the same Client is
-// going.
-var ErrAlreadyRunning = errors.New("arlo: Run already running")
-
 // Run follows Arlo's event stream until ctx ends, logging in, renewing the
 // token and reconnecting as needed, with a backoff that spares Arlo's auth
 // rate limit. handle is called from Run's goroutine, one event at a time.
 // Run returns ctx's error, or an error retrying cannot fix.
 func (c *Client) Run(ctx context.Context, handle func(Event)) error {
-	c.mu.Lock()
-	if c.running {
-		c.mu.Unlock()
-		return ErrAlreadyRunning
+	if err := c.h.enter(); err != nil {
+		return err
 	}
-	c.running = true
-	c.mu.Unlock()
-	defer func() {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		c.running, c.ran = false, true
-		close(c.runDone)
-		c.runDone = make(chan struct{})
-	}()
+	defer c.h.leave()
 	up := false
 	emit := func(e Event) {
 		if cn, ok := e.(Connection); ok {
@@ -180,8 +166,8 @@ func (c *Client) follow(ctx context.Context, emit func(Event)) error {
 			}
 		case <-refresh.C:
 			refreshAll()
-		case cmd := <-c.cmds:
-			cmd.done <- cmd.fn(ctx, st, emit)
+		case cmd := <-c.h.cmds:
+			cmd.run(ctx, st, emit)
 		case m := <-conn.msgs:
 			c.api.dump("mqtt"+m.topic, map[string]any{"topic": m.topic}, m.payload)
 			es, err := st.received(m.payload)

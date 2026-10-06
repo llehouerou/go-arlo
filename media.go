@@ -21,7 +21,7 @@ func (SnapshotReady) isEvent() {}
 // SnapshotReady some seconds later. It wakes the camera, so it costs
 // battery. It waits for Run's connection.
 func (c *Client) Snapshot(ctx context.Context, cameraID string) error {
-	return c.do(ctx, "snapshot", func(ctx context.Context, st *stream, _ func(Event)) error {
+	return c.h.do(ctx, "snapshot", func(ctx context.Context, st *stream, _ func(Event)) error {
 		base, err := st.baseOf(cameraID)
 		if err != nil {
 			return err
@@ -43,7 +43,7 @@ func (c *Client) Snapshot(ctx context.Context, cameraID string) error {
 // Run's connection.
 func (c *Client) Stream(ctx context.Context, cameraID string) (string, error) {
 	var u string
-	err := c.do(ctx, "stream", func(ctx context.Context, st *stream, _ func(Event)) error {
+	err := c.h.do(ctx, "stream", func(ctx context.Context, st *stream, _ func(Event)) error {
 		base, err := st.baseOf(cameraID)
 		if err != nil {
 			return err
@@ -106,7 +106,7 @@ type LastImages struct {
 // SnapshotReady. It waits for Run's connection.
 func (c *Client) LastImages(ctx context.Context, cameraID string) (LastImages, error) {
 	var li LastImages
-	err := c.do(ctx, "last images", func(_ context.Context, st *stream, _ func(Event)) error {
+	err := c.h.do(ctx, "last images", func(_ context.Context, st *stream, _ func(Event)) error {
 		var ok bool
 		if li, ok = st.images[cameraID]; !ok {
 			return fmt.Errorf("no camera %s", cameraID)
