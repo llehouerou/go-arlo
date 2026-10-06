@@ -124,6 +124,14 @@ Each layer works end to end before the next, and leaves one runnable check.
 - An untrusted browser gets HTTP 200 with `meta.code` 400, error 9261
   "Invalid factor data" from `getFactorId`. HA's own trust cookie was refused
   that way when replayed with HA's device id.
+- 2026-10-06 22:09 (UTC+4), Arlo incident "Login Issue" (third-party
+  identity outage, new logins and untrusted browsers): every renewal failed.
+  `/api/auth` still answered; `getFactorId` was refused (its code was not
+  logged) and `getFactors` answered `meta.code` 400 "Mfa disabled by
+  service". Arlo's web app kept working on an already-authenticated
+  browser. Since then only error 9261 leads to the email 2FA: any other
+  refusal of the trust check fails the auth, keeps the trust cookie, and
+  `Run` retries with its backoff.
 - `mqttUrl` is `ssl://mqtt-cluster-v2-z1-1.arloxcld.com:443`; MQTT v5 over
   TLS with paho.golang: CONNACK 0, SUBACK granted. paho.golang stays.
 - `supportsMultiLocation` is true: modes are V3, per location.
