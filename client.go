@@ -4,7 +4,7 @@ package arlo
 import (
 	"context"
 	"log/slog"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
@@ -46,9 +46,12 @@ type Client struct {
 	api  *api
 	dial dialFunc
 
-	cmds    chan command
-	running atomic.Bool
-	runDone atomic.Pointer[chan struct{}] // closed when the last Run returns
+	cmds chan command
+
+	mu      sync.Mutex
+	running bool
+	ran     bool          // a Run has returned
+	runDone chan struct{} // closed when the current Run, or the next one, returns
 }
 
 // New returns a client. It does not touch the network: see Run.
@@ -58,5 +61,5 @@ func New(cfg Config) *Client {
 }
 
 func newClient(a *api, dial dialFunc) *Client {
-	return &Client{log: a.log, api: a, dial: dial, cmds: make(chan command)}
+	return &Client{log: a.log, api: a, dial: dial, cmds: make(chan command), runDone: make(chan struct{})}
 }

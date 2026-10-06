@@ -32,13 +32,20 @@ var ErrAlreadyRunning = errors.New("arlo: Run already running")
 // rate limit. handle is called from Run's goroutine, one event at a time.
 // Run returns ctx's error, or an error retrying cannot fix.
 func (c *Client) Run(ctx context.Context, handle func(Event)) error {
-	if !c.running.CompareAndSwap(false, true) {
+	c.mu.Lock()
+	if c.running {
+		c.mu.Unlock()
 		return ErrAlreadyRunning
 	}
-	defer c.running.Store(false)
-	runDone := make(chan struct{})
-	c.runDone.Store(&runDone)
-	defer close(runDone)
+	c.running = true
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.running, c.ran = false, true
+		close(c.runDone)
+		c.runDone = make(chan struct{})
+	}()
 	up := false
 	emit := func(e Event) {
 		if cn, ok := e.(Connection); ok {

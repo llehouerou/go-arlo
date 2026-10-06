@@ -41,6 +41,13 @@ type testRun struct {
 // startRun starts Run on a fresh Session against fake, over an in-memory
 // network. code nil means the account cannot do two-factor.
 func startRun(t *testing.T, fake *fakeArlo, code CodeFunc) *testRun {
+	r := newTestRun(t, fake, code)
+	r.start()
+	return r
+}
+
+// newTestRun is startRun without starting Run.
+func newTestRun(t *testing.T, fake *fakeArlo, code CodeFunc) *testRun {
 	l := newPipeListener()
 	srv := &http.Server{Handler: fake}
 	go func() { _ = srv.Serve(l) }()
@@ -51,9 +58,19 @@ func startRun(t *testing.T, fake *fakeArlo, code CodeFunc) *testRun {
 	}
 	a := newAPI(cfg, "http://arlo.test", "http://arlo.test")
 	a.http.SetDial(l.dial)
-	r := &testRun{t: t, c: newClient(a, fake.dial), done: make(chan struct{})}
+	r := &testRun{t: t, c: newClient(a, fake.dial), done: make(chan struct{}), cancel: func() {}}
+	close(r.done) // until start
+	t.Cleanup(func() {
+		r.stop()
+		_ = srv.Close()
+	})
+	return r
+}
+
+func (r *testRun) start() {
 	var ctx context.Context
-	ctx, r.cancel = context.WithCancel(t.Context())
+	ctx, r.cancel = context.WithCancel(r.t.Context())
+	r.done = make(chan struct{})
 	go func() {
 		r.err = r.c.Run(ctx, func(e Event) {
 			r.mu.Lock()
@@ -62,11 +79,6 @@ func startRun(t *testing.T, fake *fakeArlo, code CodeFunc) *testRun {
 		})
 		close(r.done)
 	}()
-	t.Cleanup(func() {
-		r.stop()
-		_ = srv.Close()
-	})
-	return r
 }
 
 // stop ends Run and waits for it.
@@ -294,10 +306,42 @@ func TestRunCommands(t *testing.T) {
 	})
 }
 
-func TestCommandsNeedRun(t *testing.T) {
-	if err := New(Config{}).SetMode(t.Context(), ArmHome); err != ErrNotRunning {
-		t.Errorf("set mode without Run: %v", err)
-	}
+// A command called before Run waits for its connection, as a host calls one
+// right after go c.Run(...); once Run has returned, commands fail.
+func TestCommandsBeforeRun(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r := newTestRun(t, newFakeArlo(t), withCode)
+		ctx := t.Context()
+		cmd := make(chan error, 1)
+		go func() {
+			_, err := r.c.LastImages(ctx, "C1")
+			cmd <- err
+		}()
+		synctest.Wait()
+		r.start()
+		if err := <-cmd; err != nil {
+			t.Errorf("last images before Run: %v", err)
+		}
+
+		r.stop()
+		if _, err := r.c.LastImages(ctx, "C1"); err != ErrNotRunning {
+			t.Errorf("last images after Run: %v", err)
+		}
+	})
+}
+
+// A Run that fails before connecting ends the commands waiting for it.
+func TestCommandsWaitingRunFails(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r := newTestRun(t, newFakeArlo(t), nil) // needs a code it cannot get
+		cmd := make(chan error, 1)
+		go func() { cmd <- r.c.SetMode(t.Context(), ArmHome) }()
+		synctest.Wait()
+		r.start()
+		if err := <-cmd; err != ErrNotRunning {
+			t.Errorf("set mode: %v", err)
+		}
+	})
 }
 
 func TestRunAlreadyRunning(t *testing.T) {
