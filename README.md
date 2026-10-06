@@ -7,9 +7,9 @@ mode. The protocol is ported from [pyaarlo](https://github.com/twrecked/pyaarlo)
 
 Scope is deliberately small: device connectivity, battery, motion, the
 location's alarm mode, the recordings library, the cameras' latest pictures,
-snapshots on demand and live stream URLs. Tested with a VMB4000 base station
-and Arlo Pro 2 cameras on an account using location (V3) modes, from a
-granted-access account.
+snapshots on demand, live stream URLs and turning cameras on or off. Tested
+with a VMB4000 base station and Arlo Pro 2 cameras on an account using
+location (V3) modes, from a granted-access account.
 
 ## Library
 
@@ -26,7 +26,7 @@ go func() {
 		switch e := e.(type) {
 		case arlo.Connection:  // event stream up or down
 		case arlo.Devices:     // base stations and cameras, on each connection
-		case arlo.DeviceState: // connected and/or battery of one device
+		case arlo.DeviceState: // connected, battery and/or on of one device
 		case arlo.Motion:      // motion started or stopped on a camera
 		case arlo.ModeChanged: // the location's mode
 		case arlo.SnapshotReady: // a camera's new snapshot, whoever asked
@@ -41,6 +41,7 @@ rs, err := c.Library(ctx, from, to) // recordings of these days, with presigned 
 err := c.Snapshot(ctx, cameraID)    // SnapshotReady follows within seconds; wakes the camera
 u, err := c.Stream(ctx, cameraID)   // rtsps:// URL; read it within ~30 s, skipping TLS verification
 li, err := c.LastImages(ctx, cameraID) // latest picture and snapshot URLs, without waking the camera
+err := c.SetCameraOn(ctx, cameraID, false) // DeviceState with On follows; off, the camera does nothing
 ```
 
 `Run` blocks. It logs in, connects to Arlo's MQTT broker, pings the base

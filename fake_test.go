@@ -193,6 +193,13 @@ func (f *fakeArlo) serveAPI(w http.ResponseWriter, r *http.Request, body map[str
 			f.push(`{"action":"is","resource":"devices","from":"B","devices":{
 				"C2":{"properties":{"batteryLevel":45,"connectionState":"available","motionDetected":false}},
 				"C1":{"properties":{"batteryLevel":80,"connectionState":"available","motionDetected":"False"}}}}`)
+		case "cameras/C1": // camera on/off
+			relayed("cameras/C1")
+			privacy, ok := body["properties"].(map[string]any)["privacyActive"].(bool)
+			if !ok || body["action"] != "set" || body["publishResponse"] != true {
+				f.t.Errorf("camera on/off %v", body)
+			}
+			f.push(fmt.Sprintf(`{"action":"is","from":"B","properties":{"privacyActive":%v},"resource":"cameras/C1"}`, privacy))
 		default:
 			f.t.Errorf("notify %v", body)
 		}

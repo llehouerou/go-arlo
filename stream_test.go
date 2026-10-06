@@ -77,6 +77,11 @@ func TestStreamReceived(t *testing.T) {
 			[]string{"recording C1 946684800123 video/mp4 https://h/O/C1/recordings/946684800123.mp4?s=x https://h/O/C1/recordings/946684800123_thumb.jpg?s=x"}},
 		{"recording with an unexpected name", `{"deviceId":"C1","presignedContentUrl":"https://h/clip","resource":"mediaUploadNotification"}`,
 			[]string{"recording C1 -62135596800000  https://h/clip "}},
+		// privacyActive as pyaarlo's camera.py reads it; not yet seen live.
+		{"camera turned off", `{"action":"is","from":"B","properties":{"privacyActive":true},"resource":"cameras/C1"}`,
+			[]string{"state C1 connected=- battery=- on=false"}},
+		{"camera on in get devices", `{"action":"is","resource":"devices","from":"B","devices":{"C1":{"properties":{"privacyActive":"False"}}}}`,
+			[]string{"state C1 connected=- battery=- on=true"}},
 		{"snapshot started", `{"action":"is","from":"B","properties":{"activityState":"fullFrameSnapshot"},"resource":"cameras/C1"}`, nil},
 	}
 	for _, tc := range cases {
@@ -129,7 +134,11 @@ func describe(e Event) string {
 		if e.Battery != nil {
 			batt = fmt.Sprint(*e.Battery)
 		}
-		return fmt.Sprintf("state %s connected=%s battery=%s", e.ID, conn, batt)
+		s := fmt.Sprintf("state %s connected=%s battery=%s", e.ID, conn, batt)
+		if e.On != nil {
+			s += fmt.Sprintf(" on=%v", *e.On)
+		}
+		return s
 	case SnapshotReady:
 		return fmt.Sprintf("snapshot %s %s", e.ID, e.URL)
 	case RecordingAdded:

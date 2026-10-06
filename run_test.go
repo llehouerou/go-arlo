@@ -268,6 +268,18 @@ func TestRunCommands(t *testing.T) {
 			t.Errorf("stream %q, %v", u, err)
 		}
 
+		if err := r.c.SetCameraOn(ctx, "C1", false); err != nil {
+			t.Fatal(err)
+		}
+		r.expect("camera off", "state C1 connected=- battery=- on=false")
+		if err := r.c.SetCameraOn(ctx, "C1", true); err != nil {
+			t.Fatal(err)
+		}
+		r.expect("camera on", "state C1 connected=- battery=- on=true")
+		if err := r.c.SetCameraOn(ctx, "B", true); err == nil || err.Error() != "arlo: camera on: no camera B" {
+			t.Errorf("camera on of a base station: %v", err)
+		}
+
 		rs, err := r.c.Library(ctx, time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2000, 1, 3, 0, 0, 0, 0, time.UTC))
 		want := Recording{CameraID: "C1", Created: time.UnixMilli(946684800123), Duration: 12 * time.Second,
 			ContentType: "video/mp4", Reason: "motionRecord", Object: "Person", URL: "https://v", ThumbnailURL: "https://t"}

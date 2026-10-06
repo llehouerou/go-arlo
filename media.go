@@ -22,15 +22,8 @@ func (SnapshotReady) isEvent() {}
 // battery. It waits for Run's connection.
 func (c *Client) Snapshot(ctx context.Context, cameraID string) error {
 	return c.h.do(ctx, "snapshot", func(ctx context.Context, st *stream, _ func(Event)) error {
-		base, err := st.baseOf(cameraID)
-		if err != nil {
-			return err
-		}
-		_, err = c.api.relay(ctx, "/hmsweb/users/devices/fullFrameSnapshot", base, map[string]any{
-			"action":          "set",
-			"resource":        "cameras/" + cameraID,
-			"publishResponse": true,
-			"properties":      map[string]any{"activityState": "fullFrameSnapshot"},
+		_, err := c.setCamera(ctx, st, "/hmsweb/users/devices/fullFrameSnapshot", cameraID, map[string]any{
+			"properties": map[string]any{"activityState": "fullFrameSnapshot"},
 		})
 		return err
 	})
@@ -44,16 +37,9 @@ func (c *Client) Snapshot(ctx context.Context, cameraID string) error {
 func (c *Client) Stream(ctx context.Context, cameraID string) (string, error) {
 	var u string
 	err := c.h.do(ctx, "stream", func(ctx context.Context, st *stream, _ func(Event)) error {
-		base, err := st.baseOf(cameraID)
-		if err != nil {
-			return err
-		}
-		data, err := c.api.relay(ctx, "/hmsweb/users/devices/startStream", base, map[string]any{
-			"action":          "set",
-			"resource":        "cameras/" + cameraID,
-			"publishResponse": true,
-			"responseUrl":     "",
-			"properties":      map[string]any{"activityState": "startUserStream", "cameraId": cameraID},
+		data, err := c.setCamera(ctx, st, "/hmsweb/users/devices/startStream", cameraID, map[string]any{
+			"responseUrl": "",
+			"properties":  map[string]any{"activityState": "startUserStream", "cameraId": cameraID},
 		})
 		if err != nil {
 			return err
@@ -76,10 +62,40 @@ func streamURL(data []byte) (string, error) {
 	return strings.Replace(r.URL, "rtsp://", "rtsps://", 1), nil
 }
 
+// SetCameraOn turns a camera on or off; off, it neither detects, records
+// nor streams. The camera reports the change as a DeviceState. It waits for
+// Run's connection.
+func (c *Client) SetCameraOn(ctx context.Context, cameraID string, on bool) error {
+	name := "camera off"
+	if on {
+		name = "camera on"
+	}
+	return c.h.do(ctx, name, func(ctx context.Context, st *stream, _ func(Event)) error {
+		_, err := c.setCamera(ctx, st, "", cameraID, map[string]any{
+			"properties": map[string]any{"privacyActive": !on},
+		})
+		return err
+	})
+}
+
+// setCamera relays a set message for a camera through its base station to
+// path, or to the base's notify when path is empty, and returns Arlo's
+// immediate answer. body holds the message's own fields, like properties.
+func (c *Client) setCamera(ctx context.Context, st *stream, path, cameraID string, body map[string]any) (json.RawMessage, error) {
+	base, err := st.baseOf(cameraID)
+	if err != nil {
+		return nil, err
+	}
+	if path == "" {
+		path = "/hmsweb/users/devices/notify/" + base.ID
+	}
+	body["action"] = "set"
+	body["resource"] = "cameras/" + cameraID
+	body["publishResponse"] = true
+	return c.api.relay(ctx, path, base, body)
+}
+
 // baseOf returns the base station a camera pairs with.
-//
-// ponytail: Snapshot and Stream each build their set cameras/<id> message;
-// one camera relay (baseOf + message + relay) when camera on/off makes three.
 func (s *stream) baseOf(cameraID string) (device, error) {
 	i := slices.IndexFunc(s.devices, func(d Device) bool { return d.ID == cameraID && d.Type == "camera" })
 	if i < 0 {

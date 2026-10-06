@@ -144,7 +144,8 @@ type Devices []Device
 type DeviceState struct {
 	ID        string
 	Connected *bool
-	Battery   *int // percent
+	Battery   *int  // percent
+	On        *bool // a camera's; false while turned off
 }
 
 // Motion reports whether a camera sees motion: on connection, then as it
@@ -180,6 +181,7 @@ type properties struct {
 	BatteryLevel    *int      `json:"batteryLevel"`
 	MotionDetected  *flexBool `json:"motionDetected"`
 	SnapshotURL     *string   `json:"presignedFullFrameSnapshotUrl"`
+	PrivacyActive   *flexBool `json:"privacyActive"`
 }
 
 // events are what a device's properties report: its state, and whether it
@@ -192,7 +194,11 @@ func (p properties) events(id string) []Event {
 		up := *p.ConnectionState == "available"
 		s.Connected = &up
 	}
-	if s.Connected != nil || s.Battery != nil {
+	if p.PrivacyActive != nil {
+		on := !bool(*p.PrivacyActive)
+		s.On = &on
+	}
+	if s.Connected != nil || s.Battery != nil || s.On != nil {
 		out = append(out, s)
 	}
 	if p.MotionDetected != nil {

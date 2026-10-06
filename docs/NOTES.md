@@ -371,9 +371,11 @@ flood/spotlights (no such hardware here).
    Makes a real alarm out of other sensors.
 3. ~~**New recording events**~~: done 2026-10-06, `RecordingAdded` (see
    "New recordings").
-4. **Camera on/off** (`camera.py` `turn_on`/`turn_off`): notify
+4. ~~**Camera on/off**~~: in code 2026-10-06, `SetCameraOn` and
+   `DeviceState.On` (`camera.py` `turn_on`/`turn_off`): notify
    `{action: set, resource: cameras/<id>, publishResponse: true,
-   properties: {privacyActive: bool}}`. Privacy while someone is home.
+   properties: {privacyActive: bool}}`. Not yet run on the production host:
+   check the camera's answer packet with `arlo camera <id> off`.
 5. **Base restart** (`POST /hmsweb/users/devices/restart` `{deviceId}`):
    a remedy for a watchdog, while the base still reaches the cloud.
 

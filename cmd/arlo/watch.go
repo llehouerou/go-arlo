@@ -40,6 +40,9 @@ func describe(e arlo.Event) string {
 		if e.Battery != nil {
 			s += fmt.Sprintf(" battery=%d%%", *e.Battery)
 		}
+		if e.On != nil {
+			s += fmt.Sprintf(" on=%v", *e.On)
+		}
 		return s
 	case arlo.Motion:
 		return fmt.Sprintf("motion %s active=%v", e.ID, e.Active)

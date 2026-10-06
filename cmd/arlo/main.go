@@ -32,6 +32,8 @@ func main() {
 		err = stream(ctx, os.Args[2:])
 	case "lastimage":
 		err = lastImage(ctx, os.Args[2:])
+	case "camera":
+		err = camera(ctx, os.Args[2:])
 	default:
 		usage()
 	}
@@ -52,6 +54,7 @@ commands:
   snapshot [flags] <camera id>  ask a camera for a snapshot, print events
   stream [flags] <camera id>    start a camera's live stream, print its URL and events
   lastimage [flags] <camera id> print a camera's latest pictures without waking it; -o saves the newest
+  camera [flags] <camera id> on|off  turn a camera on or off, print events
 
 Commands take the same flags; see arlo login -h.`)
 	os.Exit(2)
