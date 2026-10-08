@@ -94,7 +94,7 @@ func findCode(cl *imapclient.Client, since time.Time) (string, error) {
 	return "", nil
 }
 
-// Same pattern as pyaarlo: a line holding only the six digits.
+// Arlo's mail puts the code alone on a line.
 var codeLine = regexp.MustCompile(`^\W*(\d{6})\W*$`)
 
 // codeFromMail finds the code in the text parts of a raw email.

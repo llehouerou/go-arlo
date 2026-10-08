@@ -102,8 +102,9 @@ func (a *api) setAuth(data json.RawMessage) (authData, error) {
 	return d, nil
 }
 
-// authenticate follows pyaarlo's ArloBackEnd._auth, _validate and
-// _pair_auth_code.
+// authenticate logs in: credentials to /api/auth, a second factor when Arlo
+// leaves the auth incomplete, a check of the new token, and, when the second
+// factor went by email, the pairing that lets later logins skip it.
 func (a *api) authenticate(ctx context.Context) error {
 	a.preflight(ctx, "/api/auth")
 	data, err := a.authCall(ctx, http.MethodPost, "/api/auth", false, map[string]any{
@@ -232,7 +233,7 @@ func (a *api) secondFactor(ctx context.Context) (paired bool, err error) {
 	a.log.Info("arlo: 2FA by email")
 	since := time.Now()
 	a.preflight(ctx, "/api/startAuth")
-	// pyaarlo sends factorType BROWSER here too, with the email factor's id.
+	// factorType stays BROWSER, with the email factor's id.
 	data, err = a.authCall(ctx, http.MethodPost, "/api/startAuth", true, map[string]any{
 		"factorId":   factorID,
 		"factorType": "BROWSER",

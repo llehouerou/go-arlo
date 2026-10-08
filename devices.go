@@ -56,8 +56,8 @@ func (a *api) relay(ctx context.Context, path string, base device, body map[stri
 	return a.apiCall(ctx, http.MethodPost, path, map[string]string{"xcloudId": base.XCloudID}, body)
 }
 
-// ping subscribes this client to a base station's events, as pyaarlo does
-// every minute.
+// ping subscribes this client to a base station's events, for a few
+// minutes: Run renews it every minute.
 func (a *api) ping(ctx context.Context, base device) error {
 	return a.notify(ctx, base, map[string]any{
 		"action":          "set",

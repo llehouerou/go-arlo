@@ -31,7 +31,7 @@ type eventConn struct {
 // to topics. ctx bounds the whole connection, not just the dial.
 type dialFunc func(ctx context.Context, url, userID, token string, topics []string) (eventConn, error)
 
-// mqttDialer connects to Arlo's MQTT broker, as pyaarlo does.
+// mqttDialer connects to Arlo's MQTT broker over TLS.
 func mqttDialer(log *slog.Logger) dialFunc {
 	return func(ctx context.Context, rawURL, userID, token string, topics []string) (eventConn, error) {
 		u, err := url.Parse(rawURL)
@@ -66,7 +66,8 @@ func mqttDialer(log *slog.Logger) dialFunc {
 			OnClientError: func(err error) { log.Debug("arlo: MQTT client error", "err", err) },
 		})
 		if _, err := cl.Connect(ctx, &paho.Connect{
-			// pyaarlo: the last 10 digits must be random.
+			// A broker drops a client when another connects with its id: a
+			// random suffix keeps this account's concurrent connections apart.
 			ClientID:     fmt.Sprintf("user_%s_%010d", userID, rand.IntN(1e10)),
 			Username:     userID,
 			UsernameFlag: true,

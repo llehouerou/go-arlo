@@ -138,7 +138,7 @@ func (a *api) authHeaders(authorized bool) map[string]string {
 	return h
 }
 
-// preflight mimics the browser's CORS preflight pyaarlo sends before some
+// preflight mimics the CORS preflight a browser sends before some
 // auth calls. Its outcome does not matter.
 func (a *api) preflight(ctx context.Context, path string) {
 	_, _ = a.http.R().SetContext(ctx).SetHeaders(a.authHeaders(false)).

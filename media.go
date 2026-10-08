@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"slices"
-	"strings"
 )
 
 // SnapshotReady reports a camera's new full-frame snapshot, whoever asked
@@ -50,16 +50,21 @@ func (c *Client) Stream(ctx context.Context, cameraID string) (string, error) {
 	return u, err
 }
 
-// streamURL reads startStream's answer. Arlo names the RTSPS stream
-// rtsp://; pyaarlo fixes it the same way.
+// streamURL reads startStream's answer. Its URL says rtsp, yet the server on
+// port 443 only speaks RTSP over TLS (docs/NOTES.md, "Live stream").
 func streamURL(data []byte) (string, error) {
 	var r struct {
 		URL string `json:"url"`
 	}
-	if err := json.Unmarshal(data, &r); err != nil || !strings.HasPrefix(r.URL, "rtsp") {
+	if err := json.Unmarshal(data, &r); err != nil {
 		return "", fmt.Errorf("no stream URL in %s", snippet(data))
 	}
-	return strings.Replace(r.URL, "rtsp://", "rtsps://", 1), nil
+	u, err := url.Parse(r.URL)
+	if err != nil || (u.Scheme != "rtsp" && u.Scheme != "rtsps") {
+		return "", fmt.Errorf("no stream URL in %s", snippet(data))
+	}
+	u.Scheme = "rtsps"
+	return u.String(), nil
 }
 
 // SetCameraOn turns a camera on or off; off, it neither detects, records

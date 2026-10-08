@@ -2,8 +2,8 @@
 
 A Go client for Arlo's cloud API: log in (with email two-factor and trusted
 browser pairing), follow the event stream, and read and set the location
-mode. The protocol is ported from [pyaarlo](https://github.com/twrecked/pyaarlo)
-0.8.0.23.
+mode. The protocol was observed on Arlo's servers and cross-checked against
+[pyaarlo](https://github.com/twrecked/pyaarlo) 0.8.0.23.
 
 Scope is deliberately small: device connectivity, battery, motion, the
 location's alarm mode, the recordings library, the cameras' latest pictures,
@@ -92,6 +92,13 @@ Without `-imap-user` the code is typed on stdin. Responses and MQTT messages
 are dumped, secrets redacted, to `-dump` (default `debug/`, empty to
 disable): debug from the dumps rather than by spending auth attempts.
 
+## Acknowledgements
+
+[pyaarlo](https://github.com/twrecked/pyaarlo), by Steve Herrell
+([twrecked](https://github.com/twrecked)), maps much of Arlo's undocumented
+protocol; go-arlo cross-checked its own observations against it. go-arlo
+contains no pyaarlo code.
+
 ## License
 
-MIT
+MIT, see `LICENSE`.

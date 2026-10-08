@@ -34,7 +34,7 @@ type location struct {
 	Gateways []string `json:"gatewayDeviceIds"`
 }
 
-// modeHeaders are the extra headers of pyaarlo's location calls.
+// modeHeaders are the extra headers Arlo's location calls carry.
 func (a *api) modeHeaders() map[string]string {
 	return map[string]string{"x-forwarded-user": a.sess.UserID, "x-user-device-id": a.sess.UserID}
 }
@@ -74,8 +74,7 @@ func (a *api) activeMode(ctx context.Context, loc location) (Mode, int64, error)
 	return m.Properties.Mode, m.Revision, nil
 }
 
-// setMode changes a location's mode, quoting the current revision as
-// pyaarlo does.
+// setMode changes a location's mode, quoting the current revision.
 func (a *api) setMode(ctx context.Context, loc location, mode Mode) error {
 	_, rev, err := a.activeMode(ctx, loc)
 	if err != nil {

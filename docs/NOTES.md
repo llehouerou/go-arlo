@@ -21,7 +21,7 @@ Assistant; the library itself knows nothing of Oiko.
 |---|---|
 | Module | `github.com/llehouerou/go-arlo`, flake devShell with `go_1_27` |
 | Account | a dedicated granted-access account; its Home Assistant integration was stopped while testing |
-| HTTP | `github.com/imroc/req/v3` with `ImpersonateChrome()`; Arlo iOS user agent like pyaarlo |
+| HTTP | `github.com/imroc/req/v3` with `ImpersonateChrome()`; the Arlo Android app's user agent (see "User agent") |
 | MQTT | `github.com/eclipse/paho.golang` (v5, already in Oiko), proven against Arlo's broker in the login spike |
 | IMAP | `github.com/emersion/go-imap/v2` |
 | 2FA code | injected `func(ctx, since time.Time) (string, error)`; IMAP (newest `do_not_reply@arlo.com` mail after `since`) and stdin (CLI) implementations |
@@ -43,7 +43,7 @@ Authentication attempts are rate limited with a long cooldown. Hence:
 - One trusted session per place: the spike paired on the production host directly, and the
   session file there is the one to hand to Oiko, not a second pairing.
 
-## What pyaarlo does (verified in the source)
+## The protocol, cross-checked against pyaarlo's source
 
 Login (`backend.py`), all on `https://ocapi-app.arlo.com`:
 
@@ -267,8 +267,9 @@ account; the `logout` pyaarlo warns about must come from something else.
   with `responseUrl: ""` and `properties: {activityState: startUserStream,
   cameraId}` → at once `{url, bandwidthTestUrl, nextgenServer: false}`.
   `url` is `rtsp://<IP>:443/vzmodulelive/<camId>_<ms>?egressToken=…&
-  userAgent=arloMobileClient&dType=iOS…`: RTSP over TLS, so `rtsps://`
-  (the iOS user agent picks RTSP). A granted-access account may stream.
+  userAgent=arloMobileClient&dType=iOS…` (with the user agent of the time,
+  an iOS app's): RTSP over TLS, so `rtsps://`. A granted-access account may
+  stream.
 - The certificate does not match the IP: clients must skip verification
   (`ffmpeg -tls_verify 0 -rtsp_transport tcp -i …`). mpv plays it as is
   (`--tls-verify` defaults to no); no desktop handler takes `rtsps://`, so
@@ -360,7 +361,19 @@ account; the `logout` pyaarlo warns about must come from something else.
 - `Run` turns the second message into `RecordingAdded`; a recording made
   while disconnected is not replayed.
 
-## Not yet ported from pyaarlo (roadmap, 2026-09-30)
+## User agent (2026-10-08, dev machine)
+
+- go-arlo sends what the Arlo Android app 6.46.0 sends to the cloud API,
+  read from the app installed on a phone: the system's `http.agent`, then
+  `(Android Arlo <version>) MANUFACTURER:<m> MODEL:<model>`
+  (`com.arlo.app.communication.UserAgent.getExtended`). The app's own
+  string resource is `(Android Arlo %1S)`.
+- `startStream` answers it with the same RTSP-over-TLS URL as before, now
+  with `dType=Android`: ffprobe read H.264 1920×1072 and AAC.
+- The first login after the change fell to the email 2FA (error 9261) on
+  the dev account, the next one did not: the trust likely covers the user
+  agent. Expect one email 2FA after changing it.
+## Not yet in go-arlo (roadmap, 2026-09-30)
 
 What pyaarlo does that go-arlo does not, ranked by use for a home automation
 host. Left out: doorbells, lights, sensors, audio playback, nightlight and

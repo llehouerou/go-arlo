@@ -1,4 +1,4 @@
-// Package arlo is a client for Arlo's cloud API, ported from pyaarlo 0.8.0.23.
+// Package arlo is a client for Arlo's cloud API.
 package arlo
 
 import (
@@ -14,8 +14,9 @@ const (
 	defaultAuthHost = "https://ocapi-app.arlo.com"
 	defaultAPIHost  = "https://myapi.arlo.com"
 	origin          = "https://my.arlo.com"
-	// pyaarlo's default ("arlo" in its USER_AGENTS).
-	userAgent = "(iPhone15,2 18_1_1) iOS Arlo 5.4.3"
+	// What the Arlo Android app 6.46.0 sends to the cloud API: the system's
+	// http.agent, then the app's (com.arlo.app.communication.UserAgent).
+	userAgent = "Dalvik/2.1.0 (Linux; U; Android 17; Pixel 9a Build/CP3A.260905.009) (Android Arlo 6.46.0) MANUFACTURER:Google MODEL:Pixel 9a"
 )
 
 // CodeFunc returns the 6-digit code Arlo emails for two-factor
