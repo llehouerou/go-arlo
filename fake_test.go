@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -84,7 +85,8 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(code)
 		_ = json.NewEncoder(w).Encode(map[string]any{"meta": map[string]any{"code": code, "error": 9204, "message": "no"}})
 	}
-	expires := time.Now().Add(2 * time.Hour).Unix()
+	// A second short of two hours: renewals do not tie with a ping.
+	expires := time.Now().Add(2*time.Hour - time.Second).Unix()
 
 	switch r.URL.Path {
 	case "/api/auth":
@@ -300,6 +302,18 @@ func (f *fakeArlo) takeCalls() []string {
 	c := f.calls
 	f.calls = nil
 	return c
+}
+
+// expectCalls checks the requests made since the last take, in any order:
+// the tests pin each step's request budget, to spare Arlo's rate limits.
+func (f *fakeArlo) expectCalls(step string, want ...string) {
+	f.t.Helper()
+	got := f.takeCalls()
+	slices.Sort(got)
+	want = slices.Sorted(slices.Values(want))
+	if !slices.Equal(got, want) {
+		f.t.Errorf("%s calls:\n got %q\nwant %q", step, got, want)
+	}
 }
 
 // pipeListener serves HTTP over net.Pipe: unlike loopback sockets, a

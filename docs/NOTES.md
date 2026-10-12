@@ -28,6 +28,7 @@ Assistant; the library itself knows nothing of Oiko.
 | Session | JSON file at a caller-given path, 0600, atomic write: user device id, browser auth code, cookies, token, expiry |
 | API | `Client.Run(ctx, func(Event)) error` blocks and owns login, MQTT and reconnects; commands are methods (`SetMode`) on the session `Run` holds |
 | Events | concrete types: `Connection`, `Devices`, `DeviceState` (serial, connected, battery), `Motion`, `ModeChanged` |
+| Request budget | the tests pin the requests to Arlo each operation costs (`fakeArlo.expectCalls`); raising one needs its reason in these notes first |
 | Production host | session at `/var/lib/oiko/arlo-session.json`; secrets from sops-nix via systemd `LoadCredential` (done in Oiko/infrastructure, not here) |
 
 ## Arlo's auth rate limit
