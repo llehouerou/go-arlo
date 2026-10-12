@@ -40,14 +40,15 @@ const (
 // docs/NOTES.md.
 var (
 	// firstLogin pairs as a trusted browser through the email two-factor.
-	firstLogin = []string{"/api/auth", "/api/getFactorId", "/api/getFactors", "/api/startAuth",
-		"/api/finishAuth", "/api/validateAccessToken", "/api/startPairingFactor", "/hmsweb/users/session/v3"}
+	firstLogin = []string{"OPTIONS /api/auth", "/api/auth", "OPTIONS /api/getFactorId", "/api/getFactorId", "/api/getFactors",
+		"OPTIONS /api/startAuth", "/api/startAuth", "/api/finishAuth", "/api/validateAccessToken", "/api/startPairingFactor",
+		"/hmsweb/users/session/v3"}
 	// savedLogin reuses the saved token: no auth.
 	savedLogin = []string{"/api/validateAccessToken", "/hmsweb/users/session/v3"}
 	// reLogin authenticates once, as a trusted browser, after Arlo refused
 	// the saved token.
-	reLogin = []string{"/api/validateAccessToken", "/api/auth", "/api/getFactorId", "/api/startAuth",
-		"/api/validateAccessToken", "/hmsweb/users/session/v3"}
+	reLogin = []string{"/api/validateAccessToken", "OPTIONS /api/auth", "/api/auth", "OPTIONS /api/getFactorId", "/api/getFactorId",
+		"OPTIONS /api/startAuth", "/api/startAuth", "/api/validateAccessToken", "/hmsweb/users/session/v3"}
 	// connectCalls follow each login: one device list, one location list,
 	// the first ping, state refresh and mode read.
 	connectCalls = []string{devicesPath, locationsPath, notifyPath, notifyPath, modePath}
@@ -207,7 +208,7 @@ func TestRunWaitsOutRefusedAuth(t *testing.T) {
 
 		time.Sleep(time.Minute)
 		synctest.Wait()
-		if calls := fake.takeCalls(); !slices.Equal(calls, []string{"/api/validateAccessToken", "/api/auth"}) {
+		if calls := fake.takeCalls(); !slices.Equal(calls, []string{"/api/validateAccessToken", "OPTIONS /api/auth", "/api/auth"}) {
 			t.Errorf("refused: %q", calls)
 		}
 		fake.set(func(f *fakeArlo) { f.refuse = false })
@@ -252,8 +253,8 @@ func TestRunRenewsSilently(t *testing.T) {
 			t.Errorf("renewal events %q", es)
 		}
 		// The token is too close to expiry to validate: one trusted auth.
-		fake.expectCalls("renewal", slices.Concat([]string{"/api/auth", "/api/getFactorId", "/api/startAuth",
-			"/api/validateAccessToken", "/hmsweb/users/session/v3"}, connectCalls)...)
+		fake.expectCalls("renewal", slices.Concat([]string{"OPTIONS /api/auth", "/api/auth", "OPTIONS /api/getFactorId", "/api/getFactorId",
+			"OPTIONS /api/startAuth", "/api/startAuth", "/api/validateAccessToken", "/hmsweb/users/session/v3"}, connectCalls)...)
 	})
 }
 

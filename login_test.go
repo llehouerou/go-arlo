@@ -43,8 +43,8 @@ func TestLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("first login",
-		"/api/auth", "/api/getFactorId", "/api/getFactors", "/api/startAuth",
-		"/api/finishAuth", "/api/validateAccessToken", "/api/startPairingFactor",
+		"OPTIONS /api/auth", "/api/auth", "OPTIONS /api/getFactorId", "/api/getFactorId", "/api/getFactors",
+		"OPTIONS /api/startAuth", "/api/startAuth", "/api/finishAuth", "/api/validateAccessToken", "/api/startPairingFactor",
 		"/hmsweb/users/session/v3")
 	if codes != 1 {
 		t.Errorf("code asked %d times", codes)
@@ -68,7 +68,8 @@ func TestLogin(t *testing.T) {
 			t.Fatal(err)
 		}
 		expect("trusted browser",
-			"/api/validateAccessToken", "/api/auth", "/api/getFactorId", "/api/startAuth",
+			"/api/validateAccessToken", "OPTIONS /api/auth", "/api/auth", "OPTIONS /api/getFactorId", "/api/getFactorId",
+			"OPTIONS /api/startAuth", "/api/startAuth",
 			"/api/validateAccessToken", "/hmsweb/users/session/v3")
 	}
 	if codes != 1 {
@@ -81,13 +82,14 @@ func TestLogin(t *testing.T) {
 	if err := login(); err == nil {
 		t.Fatal("login succeeded with the trust check down")
 	}
-	expect("trust check down", "/api/validateAccessToken", "/api/auth", "/api/getFactorId")
+	expect("trust check down", "/api/validateAccessToken", "OPTIONS /api/auth", "/api/auth", "OPTIONS /api/getFactorId", "/api/getFactorId")
 	fake.mfaDown = false
 	if err := login(); err != nil {
 		t.Fatal(err)
 	}
 	expect("trust check back",
-		"/api/validateAccessToken", "/api/auth", "/api/getFactorId", "/api/startAuth",
+		"/api/validateAccessToken", "OPTIONS /api/auth", "/api/auth", "OPTIONS /api/getFactorId", "/api/getFactorId",
+		"OPTIONS /api/startAuth", "/api/startAuth",
 		"/api/validateAccessToken", "/hmsweb/users/session/v3")
 	if codes != 1 {
 		t.Errorf("code asked %d times", codes)
@@ -98,7 +100,7 @@ func TestLogin(t *testing.T) {
 	if err := login(); err == nil {
 		t.Fatal("login succeeded against a refusing server")
 	}
-	expect("refused", "/api/validateAccessToken", "/api/auth")
+	expect("refused", "/api/validateAccessToken", "OPTIONS /api/auth", "/api/auth")
 }
 
 func TestCodeFromMail(t *testing.T) {

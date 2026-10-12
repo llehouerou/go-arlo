@@ -57,6 +57,8 @@ func (f *fakeArlo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if r.Method == http.MethodOptions {
+		// Preflights reach the rate-limited auth host too.
+		f.calls = append(f.calls, "OPTIONS "+r.URL.Path)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
